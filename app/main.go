@@ -26,6 +26,9 @@ func decode(bencodedString string, index int) (interface{}, int, error) {
 	} else if identifier == 'l' {
 		return decodeList(bencodedString, index)
 
+	} else if identifier == 'd' {
+		return decodeDict(bencodedString, index)
+
 	} else {
 		return "", -1, fmt.Errorf("only strings, integers, and lists are supported at the moment")
 	}
@@ -40,7 +43,6 @@ func decodeString(bencodedString string, index int) (string, int, error) {
 			break
 		}
 	}
-	//5:hello
 	lengthStr := bencodedString[index:firstColonIndex]
 
 	length, err := strconv.Atoi(lengthStr)
@@ -71,8 +73,7 @@ func decodeInt(bencodedString string, index int) (int, int, error) {
 
 func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
 	decodedList := make([]interface{}, 0)
-	i := index
-	i++
+	i := index + 1
 	for {
 		var val interface{}
 		var err error
@@ -94,6 +95,38 @@ func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
 
 }
 
+func decodeDict(bencodedString string, index int) (map[string]interface{}, int, error) {
+	decodedDict := make(map[string]interface{})
+	i := index + 1
+	for {
+		var (
+			key interface{}
+			val interface{}
+			err error
+		)
+		identifier := bencodedString[i]
+
+		if identifier == 'e' {
+			i++
+			break
+		}
+
+		key, i, err = decode(bencodedString, i)
+		if err != nil {
+			return nil, i, err
+		}
+
+		val, i, err = decode(bencodedString, i)
+		if err != nil {
+			return nil, i, err
+		}
+
+		decodedDict[fmt.Sprintf("%v", key)] = val
+
+	}
+	return decodedDict, i, nil
+}
+
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
@@ -109,7 +142,7 @@ func main() {
 			return
 		}
 
-		jsonOutput, _ := json.Marshal(decoded)
+		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
 	} else {
 		fmt.Println("Unknown command: " + command)
