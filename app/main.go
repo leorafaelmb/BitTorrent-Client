@@ -15,28 +15,51 @@ var _ = json.Marshal
 // Example:
 // - 5:hello -> hello
 // - 10:hello12345 -> hello12345
-func decodeBencode(bencodedString string) (interface{}, error) {
-	if unicode.IsDigit(rune(bencodedString[0])) {
-		var firstColonIndex int
+func decode(bencodedString string) (interface{}, error) {
+	identifier := rune(bencodedString[0])
+	if unicode.IsDigit(identifier) {
+		return decodeString(bencodedString)
 
-		for i := 0; i < len(bencodedString); i++ {
-			if bencodedString[i] == ':' {
-				firstColonIndex = i
-				break
-			}
-		}
+	} else if identifier == 'i' {
+		return decodeInt(bencodedString)
 
-		lengthStr := bencodedString[:firstColonIndex]
-
-		length, err := strconv.Atoi(lengthStr)
-		if err != nil {
-			return "", err
-		}
-
-		return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
 	} else {
 		return "", fmt.Errorf("Only strings are supported at the moment")
 	}
+}
+
+func decodeString(bencodedString string) (string, error) {
+	var firstColonIndex int
+
+	for i := 0; i < len(bencodedString); i++ {
+		if bencodedString[i] == ':' {
+			firstColonIndex = i
+			break
+		}
+	}
+
+	lengthStr := bencodedString[:firstColonIndex]
+
+	length, err := strconv.Atoi(lengthStr)
+	if err != nil {
+		return "", err
+	}
+
+	return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
+}
+
+func decodeInt(bencodedString string) (int, error) {
+	i := 1
+	for ; bencodedString[i] != 'e'; i++ {
+
+	}
+
+	decodedInt, err := strconv.Atoi(bencodedString[1:i])
+	if err != nil {
+		return 0, err
+	}
+
+	return decodedInt, nil
 }
 
 func main() {
@@ -48,7 +71,7 @@ func main() {
 	if command == "decode" {
 		bencodedValue := os.Args[2]
 
-		decoded, err := decodeBencode(bencodedValue)
+		decoded, err := decode(bencodedValue)
 		if err != nil {
 			fmt.Println(err)
 			return
