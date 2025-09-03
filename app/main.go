@@ -76,7 +76,6 @@ func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
 	for {
 		var val interface{}
 		var err error
-		fmt.Println(string(bencodedString[i]))
 
 		if bencodedString[i] == 'e' {
 			i++
