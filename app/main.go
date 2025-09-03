@@ -30,7 +30,7 @@ func decode(bencodedString string, index int) (interface{}, int, error) {
 		return decodeDict(bencodedString, index)
 
 	} else {
-		return "", -1, fmt.Errorf("only strings, integers, and lists are supported at the moment")
+		return "", -1, fmt.Errorf("invalid identifier: %s", string(identifier))
 	}
 }
 
@@ -47,7 +47,7 @@ func decodeString(bencodedString string, index int) (string, int, error) {
 
 	length, err := strconv.Atoi(lengthStr)
 	if err != nil {
-		return "", -1, err
+		return "", -1, fmt.Errorf("error converting lengthStr (%s) to an int: %v", lengthStr, err)
 	}
 	endIndex := firstColonIndex + 1 + length
 
@@ -63,7 +63,7 @@ func decodeInt(bencodedString string, index int) (int, int, error) {
 
 	decodedInt, err := strconv.Atoi(bencodedString[index+1 : i])
 	if err != nil {
-		return 0, -1, err
+		return 0, -1, fmt.Errorf("error converting %s to an int: %v", bencodedString[index+1:i], err)
 	}
 
 	i++
@@ -85,7 +85,7 @@ func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
 
 		val, i, err = decode(bencodedString, i)
 		if err != nil {
-			return nil, -1, err
+			return nil, -1, fmt.Errorf("error decoding bencoded value: %v", err)
 		}
 		decodedList = append(decodedList, val)
 
@@ -100,7 +100,7 @@ func decodeDict(bencodedString string, index int) (map[string]interface{}, int, 
 	i := index + 1
 	for {
 		var (
-			key interface{}
+			key string
 			val interface{}
 			err error
 		)
@@ -111,9 +111,9 @@ func decodeDict(bencodedString string, index int) (map[string]interface{}, int, 
 			break
 		}
 
-		key, i, err = decode(bencodedString, i)
+		key, i, err = decodeString(bencodedString, i)
 		if err != nil {
-			return nil, i, err
+			return nil, i, fmt.Errorf("error decoding dict key value: %v", err)
 		}
 
 		val, i, err = decode(bencodedString, i)
@@ -121,10 +121,59 @@ func decodeDict(bencodedString string, index int) (map[string]interface{}, int, 
 			return nil, i, err
 		}
 
-		decodedDict[fmt.Sprintf("%v", key)] = val
+		decodedDict[key] = val
 
 	}
 	return decodedDict, i, nil
+}
+
+func parseFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("error opening torrent file: %v", err)
+	}
+	defer f.Close()
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("error reading file info: %v", err)
+	}
+
+	fileSize := fileInfo.Size()
+
+	fileBytes := make([]byte, fileSize)
+
+	_, err = f.Read(fileBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error reading file into byte slice: %v", err)
+	}
+
+	return fileBytes, nil
+}
+
+type TorrentFile struct {
+	Announce string
+	Info     map[string]interface{}
+}
+
+func newTorrentFile(dict interface{}) *TorrentFile {
+	d := dict.(map[string]interface{})
+	return &TorrentFile{
+		Announce: d["announce"].(string),
+		Info:     d["info"].(map[string]interface{}),
+	}
+}
+
+func (t TorrentFile) getTrackerURL() string {
+	return t.Announce
+}
+
+func (t TorrentFile) String() string {
+	return fmt.Sprintf("Tracker URL: %s\nLength: %d", t.Announce, t.Info["length"].(int))
+}
+
+func (t TorrentFile) getLength() int {
+	return t.Info["length"].(int)
 }
 
 func main() {
@@ -144,6 +193,21 @@ func main() {
 
 		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
+
+	} else if command == "info" {
+		filePath := os.Args[2]
+		contents, err := parseFile(filePath)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		decoded, _, err := decode(string(contents), 0)
+		if err != nil {
+			fmt.Println(err)
+		}
+		t := newTorrentFile(decoded)
+		fmt.Println(t.String())
+
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
