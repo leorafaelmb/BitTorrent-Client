@@ -2,12 +2,12 @@ package main
 
 import (
 	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"unicode"
+	"unicode/utf8"
 	// bencode "github.com/jackpal/bencode-go" // Available if you need it!
 )
 
@@ -17,55 +17,60 @@ var _ = json.Marshal
 // Example:
 // - 5:hello -> hello
 // - 10:hello12345 -> hello12345
-func decode(bencodedString string, index int) (interface{}, int, error) {
-	identifier := rune(bencodedString[index])
+func decode(bencoded []byte, index int) (interface{}, int, error) {
+	identifier := rune(bencoded[index])
 	if unicode.IsDigit(identifier) {
-		return decodeString(bencodedString, index)
+		decodedString, i, err := decodeString(bencoded, index)
+		if utf8.Valid(decodedString) {
+			return string(decodedString), i, err
+		} else {
+			return decodedString, i, err
+		}
 
 	} else if identifier == 'i' {
-		return decodeInt(bencodedString, index)
+		return decodeInt(bencoded, index)
 
 	} else if identifier == 'l' {
-		return decodeList(bencodedString, index)
+		return decodeList(bencoded, index)
 
 	} else if identifier == 'd' {
-		return decodeDict(bencodedString, index)
+		return decodeDict(bencoded, index)
 
 	} else {
 		return "", -1, fmt.Errorf("invalid identifier: %s", string(identifier))
 	}
 }
 
-func decodeString(bencodedString string, index int) (string, int, error) {
+func decodeString(bencoded []byte, index int) ([]byte, int, error) {
 	var firstColonIndex int
 
-	for i := index; i < len(bencodedString); i++ {
-		if bencodedString[i] == ':' {
+	for i := index; i < len(bencoded); i++ {
+		if bencoded[i] == ':' {
 			firstColonIndex = i
 			break
 		}
 	}
-	lengthStr := bencodedString[index:firstColonIndex]
+	lengthStr := bencoded[index:firstColonIndex]
 
-	length, err := strconv.Atoi(lengthStr)
+	length, err := strconv.Atoi(string(lengthStr))
 	if err != nil {
-		return "", -1, fmt.Errorf("error converting lengthStr (%s) to an int: %v", lengthStr, err)
+		return make([]byte, 0), -1, fmt.Errorf("error converting lengthStr (%s) to an int: %v", lengthStr, err)
 	}
 	endIndex := firstColonIndex + 1 + length
 
-	decodedString := bencodedString[firstColonIndex+1 : endIndex]
+	decodedString := bencoded[firstColonIndex+1 : endIndex]
 
 	return decodedString, endIndex, nil
 }
 
-func decodeInt(bencodedString string, index int) (int, int, error) {
+func decodeInt(bencoded []byte, index int) (int, int, error) {
 	i := index
-	for ; bencodedString[i] != 'e'; i++ {
+	for ; bencoded[i] != 'e'; i++ {
 	}
 
-	decodedInt, err := strconv.Atoi(bencodedString[index+1 : i])
+	decodedInt, err := strconv.Atoi(string(bencoded[index+1 : i]))
 	if err != nil {
-		return 0, -1, fmt.Errorf("error converting %s to an int: %v", bencodedString[index+1:i], err)
+		return 0, -1, fmt.Errorf("error converting %s to an int: %v", bencoded[index+1:i], err)
 	}
 
 	i++
@@ -73,19 +78,19 @@ func decodeInt(bencodedString string, index int) (int, int, error) {
 	return decodedInt, i, nil
 }
 
-func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
+func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 	decodedList := make([]interface{}, 0)
 	i := index + 1
 	for {
 		var val interface{}
 		var err error
 
-		if bencodedString[i] == 'e' {
+		if bencoded[i] == 'e' {
 			i++
 			break
 		}
 
-		val, i, err = decode(bencodedString, i)
+		val, i, err = decode(bencoded, i)
 		if err != nil {
 			return nil, -1, fmt.Errorf("error decoding bencoded value: %v", err)
 		}
@@ -97,83 +102,36 @@ func decodeList(bencodedString string, index int) ([]interface{}, int, error) {
 
 }
 
-func decodeDict(bencodedString string, index int) (map[string]interface{}, int, error) {
+func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error) {
 	decodedDict := make(map[string]interface{})
 	i := index + 1
 	for {
 		var (
-			key string
+			key []byte
 			val interface{}
 			err error
 		)
-		identifier := bencodedString[i]
+		identifier := bencoded[i]
 
 		if identifier == 'e' {
 			i++
 			break
 		}
 
-		key, i, err = decodeString(bencodedString, i)
+		key, i, err = decodeString(bencoded, i)
 		if err != nil {
 			return nil, i, fmt.Errorf("error decoding dict key value: %v", err)
 		}
 
-		val, i, err = decode(bencodedString, i)
+		val, i, err = decode(bencoded, i)
 		if err != nil {
 			return nil, i, err
 		}
 
-		decodedDict[key] = val
+		decodedDict[string(key)] = val
 
 	}
 	return decodedDict, i, nil
-}
-
-func decodeDictFromBytes(fileBytes []byte, index int) (map[string]interface{}, int, error) {
-	bencodedString := string(fileBytes)
-	decodedDict := make(map[string]interface{})
-	i := index + 1
-	for {
-		var (
-			key string
-			val interface{}
-			err error
-		)
-		identifier := bencodedString[i]
-
-		if identifier == 'e' {
-			i++
-			break
-		}
-
-		key, i, err = decodeString(bencodedString, i)
-		if err != nil {
-			return nil, i, fmt.Errorf("error decoding dict key value: %v", err)
-		}
-
-		if key == "pieces" {
-			lengthStr := string(bencodedString[i+1])
-			endIndex, err := strconv.Atoi(lengthStr)
-			if err != nil {
-				return nil, -1, fmt.Errorf("error turning pieces val length to int")
-			}
-
-			piecesBytes := fileBytes[i+2 : endIndex]
-
-			decodedDict[key] = piecesBytes
-
-		} else {
-			val, i, err = decode(bencodedString, i)
-			if err != nil {
-				return nil, i, err
-			}
-
-			decodedDict[key] = val
-		}
-
-	}
-	return decodedDict, i, nil
-
 }
 
 func parseFile(path string) ([]byte, error) {
@@ -196,31 +154,40 @@ func parseFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading file into byte slice: %v", err)
 	}
-	//fmt.Println(fileBytes)
+
 	//fmt.Println(string(fileBytes))
 
 	return fileBytes, nil
 }
 
-// parseBytes takes in a byte slice extracted from a torrent file and returns its string representation.
-func parseBytes(b []byte) string {
-	return ""
-
-}
-
 type TorrentFile struct {
 	Announce string
-	Info     map[string]interface{}
+	Info     *Info
 }
 
 type Info struct {
+	length      int
+	name        string
+	pieceLength int
+	pieces      []byte
 }
 
 func newTorrentFile(dict interface{}) *TorrentFile {
 	d := dict.(map[string]interface{})
+	infoMap := d["info"].(map[string]interface{})
+	info := newInfo(infoMap)
 	return &TorrentFile{
 		Announce: d["announce"].(string),
-		Info:     d["info"].(map[string]interface{}),
+		Info:     info,
+	}
+}
+
+func newInfo(infoMap map[string]interface{}) *Info {
+	return &Info{
+		length:      infoMap["length"].(int),
+		name:        infoMap["name"].(string),
+		pieceLength: infoMap["piece length"].(int),
+		pieces:      infoMap["pieces"].([]byte),
 	}
 }
 
@@ -229,20 +196,31 @@ func (t TorrentFile) getTrackerURL() string {
 }
 
 func (t TorrentFile) String() string {
-	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s", t.Announce, t.Info["length"].(int), t.getInfoHash())
+	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s", t.Announce, t.Info.length, t.Info.getInfoHash())
 }
 
-func (t TorrentFile) getLength() int {
-	return t.Info["length"].(int)
-}
-
-func (t TorrentFile) getInfoHash() string {
+func (i Info) getInfoHash() string {
 	hasher := sha1.New()
-	jsonOutput, _ := json.Marshal(t.Info)
+	bencodedBytes := i.bencodeInfo()
+	hasher.Write(bencodedBytes)
 
-	hasher.Write(jsonOutput)
-	sha := hex.EncodeToString(hasher.Sum(nil))
-	return sha
+	sha := hasher.Sum(nil)
+	return fmt.Sprintf("%x", sha)
+}
+
+func (i Info) bencodeInfo() []byte {
+	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.length))
+	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.name), i.name))
+	pLB := []byte(fmt.Sprintf("12:piece lengthi%de", i.pieceLength))
+	pieces := []byte(fmt.Sprintf("6:pieces%d:", len(i.pieces)))
+	pieces = append(pieces, i.pieces...)
+
+	infoB := []byte{'d'}
+	//fmt.Println(string(append(append(append(infoB, lengthB...), nameB...), pLB...)))
+	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...), 'e')
+	//	fmt.Println(string(infoB))
+	return infoB
+
 }
 
 func main() {
@@ -254,7 +232,7 @@ func main() {
 	if command == "decode" {
 		bencodedValue := os.Args[2]
 
-		decoded, _, err := decode(bencodedValue, 0)
+		decoded, _, err := decode([]byte(bencodedValue), 0)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -270,13 +248,12 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		decoded, _, err := decodeDictFromBytes(contents, 0)
-		fmt.Println(decoded)
+		decoded, _, err := decode(contents, 0)
 		if err != nil {
 			fmt.Println(err)
 		}
-		//	t := newTorrentFile(decoded)
-		//	fmt.Println(t.String())
+		t := newTorrentFile(decoded)
+		fmt.Println(t.String())
 
 	} else {
 		fmt.Println("Unknown command: " + command)
