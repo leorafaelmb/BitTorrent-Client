@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -127,6 +129,53 @@ func decodeDict(bencodedString string, index int) (map[string]interface{}, int, 
 	return decodedDict, i, nil
 }
 
+func decodeDictFromBytes(fileBytes []byte, index int) (map[string]interface{}, int, error) {
+	bencodedString := string(fileBytes)
+	decodedDict := make(map[string]interface{})
+	i := index + 1
+	for {
+		var (
+			key string
+			val interface{}
+			err error
+		)
+		identifier := bencodedString[i]
+
+		if identifier == 'e' {
+			i++
+			break
+		}
+
+		key, i, err = decodeString(bencodedString, i)
+		if err != nil {
+			return nil, i, fmt.Errorf("error decoding dict key value: %v", err)
+		}
+
+		if key == "pieces" {
+			lengthStr := string(bencodedString[i+1])
+			endIndex, err := strconv.Atoi(lengthStr)
+			if err != nil {
+				return nil, -1, fmt.Errorf("error turning pieces val length to int")
+			}
+
+			piecesBytes := fileBytes[i+2 : endIndex]
+
+			decodedDict[key] = piecesBytes
+
+		} else {
+			val, i, err = decode(bencodedString, i)
+			if err != nil {
+				return nil, i, err
+			}
+
+			decodedDict[key] = val
+		}
+
+	}
+	return decodedDict, i, nil
+
+}
+
 func parseFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -147,13 +196,24 @@ func parseFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading file into byte slice: %v", err)
 	}
+	//fmt.Println(fileBytes)
+	//fmt.Println(string(fileBytes))
 
 	return fileBytes, nil
+}
+
+// parseBytes takes in a byte slice extracted from a torrent file and returns its string representation.
+func parseBytes(b []byte) string {
+	return ""
+
 }
 
 type TorrentFile struct {
 	Announce string
 	Info     map[string]interface{}
+}
+
+type Info struct {
 }
 
 func newTorrentFile(dict interface{}) *TorrentFile {
@@ -169,11 +229,20 @@ func (t TorrentFile) getTrackerURL() string {
 }
 
 func (t TorrentFile) String() string {
-	return fmt.Sprintf("Tracker URL: %s\nLength: %d", t.Announce, t.Info["length"].(int))
+	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s", t.Announce, t.Info["length"].(int), t.getInfoHash())
 }
 
 func (t TorrentFile) getLength() int {
 	return t.Info["length"].(int)
+}
+
+func (t TorrentFile) getInfoHash() string {
+	hasher := sha1.New()
+	jsonOutput, _ := json.Marshal(t.Info)
+
+	hasher.Write(jsonOutput)
+	sha := hex.EncodeToString(hasher.Sum(nil))
+	return sha
 }
 
 func main() {
@@ -201,12 +270,13 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		decoded, _, err := decode(string(contents), 0)
+		decoded, _, err := decodeDictFromBytes(contents, 0)
+		fmt.Println(decoded)
 		if err != nil {
 			fmt.Println(err)
 		}
-		t := newTorrentFile(decoded)
-		fmt.Println(t.String())
+		//	t := newTorrentFile(decoded)
+		//	fmt.Println(t.String())
 
 	} else {
 		fmt.Println("Unknown command: " + command)
