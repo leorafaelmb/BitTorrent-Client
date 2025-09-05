@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 	// bencode "github.com/jackpal/bencode-go" // Available if you need it!
@@ -196,7 +197,8 @@ func (t TorrentFile) getTrackerURL() string {
 }
 
 func (t TorrentFile) String() string {
-	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s", t.Announce, t.Info.length, t.Info.getInfoHash())
+	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece Hashes:\n%s",
+		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength, t.Info.getPieceHashesStr())
 }
 
 func (i Info) getInfoHash() string {
@@ -216,11 +218,29 @@ func (i Info) bencodeInfo() []byte {
 	pieces = append(pieces, i.pieces...)
 
 	infoB := []byte{'d'}
-	//fmt.Println(string(append(append(append(infoB, lengthB...), nameB...), pLB...)))
 	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...), 'e')
-	//	fmt.Println(string(infoB))
 	return infoB
 
+}
+
+func (i Info) getPieceHashes() []string {
+	var pieceHashes []string
+	pieces := i.pieces
+	for j := 0; j < len(pieces); j += 20 {
+		piece := pieces[j : j+20]
+		pieceHashes = append(pieceHashes, fmt.Sprintf("%x", piece))
+	}
+
+	return pieceHashes
+}
+
+func (i Info) getPieceHashesStr() string {
+	pieceHashes := i.getPieceHashes()
+	pieceHashesStr := ""
+	for _, h := range pieceHashes {
+		pieceHashesStr += fmt.Sprintf("%s\n", h)
+	}
+	return strings.TrimSpace(pieceHashesStr)
 }
 
 func main() {
