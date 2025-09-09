@@ -2,19 +2,15 @@ package main
 
 import (
 	"crypto/sha1"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"strings"
-	// bencode "github.com/jackpal/bencode-go" // Available if you need it!
 )
-
-// Ensures gofmt doesn't remove the "os" encoding/json import (feel free to remove this!)
-var _ = json.Marshal
-
-// Example:
-// - 5:hello -> hello
-// - 10:hello12345 -> hello12345
 
 func parseFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
@@ -64,6 +60,20 @@ func newTorrentFile(dict interface{}) *TorrentFile {
 	}
 }
 
+func newTorrentFileFromFilePath(filePath string) *TorrentFile {
+	contents, err := parseFile(filePath)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	decoded, _, err := decode(contents, 0)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return newTorrentFile(decoded)
+}
+
 func newInfo(infoMap map[string]interface{}) *Info {
 	return &Info{
 		length:      infoMap["length"].(int),
@@ -78,17 +88,17 @@ func (t TorrentFile) getTrackerURL() string {
 }
 
 func (t TorrentFile) String() string {
-	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %s\nPiece Length: %d\nPiece Hashes:\n%s",
+	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
 		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength, t.Info.getPieceHashesStr())
 }
 
-func (i Info) getInfoHash() string {
+func (i Info) getInfoHash() []byte {
 	hasher := sha1.New()
 	bencodedBytes := i.bencodeInfo()
 	hasher.Write(bencodedBytes)
 
 	sha := hasher.Sum(nil)
-	return fmt.Sprintf("%x", sha)
+	return sha
 }
 
 func (i Info) bencodeInfo() []byte {
@@ -124,10 +134,45 @@ func (i Info) getPieceHashesStr() string {
 	return strings.TrimSpace(pieceHashesStr)
 }
 
-func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
+type TrackerRequest struct {
+	TrackerURL string
+	InfoHash   string //urlencoded 20-byte long info hash
+	PeerId     string
+	Port       int
+	Uploaded   int
+	Downloaded int
+	Left       int
+	Compact    int
+}
 
+func newTrackerRequest(trackerUrl string, infoHash string, peerId string, left int) *TrackerRequest {
+	return &TrackerRequest{
+		TrackerURL: trackerUrl,
+		InfoHash:   infoHash,
+		PeerId:     peerId,
+		Port:       6881,
+		Uploaded:   0,
+		Downloaded: 0,
+		Left:       left,
+		Compact:    1,
+	}
+}
+
+func (tr TrackerRequest) urlEncodeInfoHash() string {
+	urlEncodedHash := ""
+	ih := tr.InfoHash
+	for i := 0; i < len(ih); i += 2 {
+		urlEncodedHash += fmt.Sprintf("%%%s%s", string(ih[i]), string(ih[i+1]))
+	}
+	return urlEncodedHash
+}
+
+func (tr TrackerRequest) getFullUrl() string {
+	return fmt.Sprintf("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
+		tr.TrackerURL, tr.urlEncodeInfoHash(), tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left, tr.Compact)
+}
+
+func main() {
 	command := os.Args[1]
 
 	if command == "decode" {
@@ -144,19 +189,42 @@ func main() {
 
 	} else if command == "info" {
 		filePath := os.Args[2]
-		contents, err := parseFile(filePath)
+
+		t := newTorrentFileFromFilePath(filePath)
+		fmt.Println(t.String())
+
+	} else if command == "peers" {
+		filePath := os.Args[2]
+		t := newTorrentFileFromFilePath(filePath)
+		trackerUrl := t.Announce
+		infoHash := fmt.Sprintf("%x", t.Info.getInfoHash())
+		peerId := "leofeopeoluvsanayeli"
+		left := t.Info.length
+		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
+		fullUrl := r.getFullUrl()
+
+		resp, err := http.Get(fullUrl)
+		if err != nil {
+			fmt.Println("Error connecting to server: ", err)
+			return
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatalf("Error reading response body: %v", err)
+		}
+		decoded, _, err := decode(body, 0)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		decoded, _, err := decode(contents, 0)
-		if err != nil {
-			fmt.Println(err)
+		d := decoded.(map[string]interface{})
+		p := d["peers"].([]byte)
+		for i := 0; i < len(p); i += 6 {
+			port := binary.BigEndian.Uint16(p[i+4 : i+6])
+			address := fmt.Sprintf("%d.%d.%d.%d:%d", p[i], p[i+1], p[i+2], p[i+3], port)
+			fmt.Println(address)
 		}
-		t := newTorrentFile(decoded)
-		fmt.Println(t.String())
-
-	} else if command == "peers" {
 
 	} else {
 		fmt.Println("Unknown command: " + command)
