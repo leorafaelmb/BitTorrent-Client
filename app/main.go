@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -196,10 +198,14 @@ func main() {
 	} else if command == "peers" {
 		filePath := os.Args[2]
 		t := newTorrentFileFromFilePath(filePath)
-		trackerUrl := t.Announce
-		infoHash := fmt.Sprintf("%x", t.Info.getInfoHash())
-		peerId := "leofeopeoluvsanayeli"
-		left := t.Info.length
+
+		var (
+			trackerUrl = t.Announce
+			infoHash   = fmt.Sprintf("%x", t.Info.getInfoHash())
+			peerId     = "leofeopeoluvsanayeli"
+			left       = t.Info.length
+		)
+
 		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
 		fullUrl := r.getFullUrl()
 
@@ -226,6 +232,49 @@ func main() {
 			fmt.Println(address)
 		}
 
+	} else if command == "handshake" {
+		filePath := os.Args[2]
+		peerAddress := os.Args[3]
+		t := newTorrentFileFromFilePath(filePath)
+		conn, err := net.Dial("tcp", peerAddress)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		defer conn.Close()
+
+		var message []byte
+		message = append(message, 19)
+		message = append(message, []byte("BitTorrent protocol")...)
+		message = append(message, make([]byte, 8)...)
+		message = append(message, t.Info.getInfoHash()...)
+		peerId := make([]byte, 20)
+		_, err = rand.Read(peerId)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		message = append(message, peerId...)
+		//fmt.Println(message)
+		_, err = conn.Write(message)
+		//writer := bufio.NewWriter(conn)
+		//n, err := writer.Write(message)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		//fmt.Println(n)
+		//fmt.Println(reader.Buffered())
+		respBytes := make([]byte, 68)
+		_, err = conn.Read(respBytes)
+
+		//n, err = io.ReadFull(reader, respBytes)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		peerResponseId := fmt.Sprintf("%x", respBytes[47:])
+		fmt.Println(peerResponseId)
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
