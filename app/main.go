@@ -273,7 +273,7 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		peerResponseId := fmt.Sprintf("Peer ID: %x", respBytes[47:])
+		peerResponseId := fmt.Sprintf("Peer ID: %x", respBytes[48:])
 		fmt.Println(peerResponseId)
 	} else {
 		fmt.Println("Unknown command: " + command)
