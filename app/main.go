@@ -181,8 +181,18 @@ func (tr TrackerRequest) getFullUrl() string {
 		tr.TrackerURL, tr.InfoHash, tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left, tr.Compact)
 }
 
-func (tr TrackerRequest) Send() {
-
+func (tr TrackerRequest) SendRequest() ([]byte, error) {
+	resp, err := http.Get(tr.getFullUrl())
+	if err != nil {
+		fmt.Println("Error connecting to server: ", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Error reading response body: %v", err)
+	}
+	return body, nil
 }
 
 // urlEncodeInfoHash URL-encodes a hexadecimal-represented info hash
@@ -194,10 +204,26 @@ func urlEncodeInfoHash(infoHash string) string {
 	return urlEncodedHash
 }
 
+func constructPeerMessage(t TorrentFile) ([]byte, error) {
+	var message []byte
+	message = append(message, 19)
+	message = append(message, []byte("BitTorrent protocol")...)
+	message = append(message, make([]byte, 8)...)
+	message = append(message, t.Info.getInfoHash()...)
+	peerId := make([]byte, 20)
+	_, err := rand.Read(peerId)
+	if err != nil {
+		return nil, err
+	}
+	message = append(message, peerId...)
+	return message, nil
+}
+
 func main() {
 	command := os.Args[1]
 
-	if command == "decode" {
+	switch command {
+	case "decode":
 		bencodedValue := os.Args[2]
 
 		decoded, _, err := decode([]byte(bencodedValue), 0)
@@ -205,17 +231,14 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-
 		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
 
-	} else if command == "info" {
+	case "info":
 		filePath := os.Args[2]
-
 		t := newTorrentFileFromFilePath(filePath)
 		fmt.Println(t.String())
-
-	} else if command == "peers" {
+	case "peers":
 		filePath := os.Args[2]
 		t := newTorrentFileFromFilePath(filePath)
 
@@ -227,18 +250,12 @@ func main() {
 		)
 
 		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
-		fullUrl := r.getFullUrl()
-
-		resp, err := http.Get(fullUrl)
+		body, err := r.SendRequest()
 		if err != nil {
-			fmt.Println("Error connecting to server: ", err)
+			fmt.Println(err)
 			return
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatalf("Error reading response body: %v", err)
-		}
+
 		decoded, _, err := decode(body, 0)
 		if err != nil {
 			fmt.Println(err)
@@ -251,8 +268,7 @@ func main() {
 			address := fmt.Sprintf("%d.%d.%d.%d:%d", p[i], p[i+1], p[i+2], p[i+3], port)
 			fmt.Println(address)
 		}
-
-	} else if command == "handshake" {
+	case "handshake":
 		filePath := os.Args[2]
 		peerAddress := os.Args[3]
 		t := newTorrentFileFromFilePath(filePath)
@@ -262,19 +278,11 @@ func main() {
 			return
 		}
 		defer conn.Close()
-
-		var message []byte
-		message = append(message, 19)
-		message = append(message, []byte("BitTorrent protocol")...)
-		message = append(message, make([]byte, 8)...)
-		message = append(message, t.Info.getInfoHash()...)
-		peerId := make([]byte, 20)
-		_, err = rand.Read(peerId)
+		message, err := constructPeerMessage(*t)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		message = append(message, peerId...)
 		_, err = conn.Write(message)
 		if err != nil {
 			fmt.Println(err)
@@ -289,8 +297,20 @@ func main() {
 		}
 		peerResponseId := fmt.Sprintf("Peer ID: %x", respBytes[48:])
 		fmt.Println(peerResponseId)
-	} else {
+	default:
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
+	}
+
+	if command == "decode" {
+
+	} else if command == "info" {
+
+	} else if command == "peers" {
+
+	} else if command == "handshake" {
+
+	} else {
+
 	}
 }
