@@ -14,6 +14,7 @@ import (
 	"strings"
 )
 
+// parseFile parses a torrent file and returns its bencoded data
 func parseFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -35,8 +36,6 @@ func parseFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("error reading file into byte slice: %v", err)
 	}
 
-	//fmt.Println(string(fileBytes))
-
 	return fileBytes, nil
 }
 
@@ -45,6 +44,7 @@ type TorrentFile struct {
 	Info     *Info
 }
 
+// Info represents the info dictionary and its contents in a torrent file
 type Info struct {
 	length      int
 	name        string
@@ -52,6 +52,8 @@ type Info struct {
 	pieces      []byte
 }
 
+// newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of a torrent file's
+// contents
 func newTorrentFile(dict interface{}) *TorrentFile {
 	d := dict.(map[string]interface{})
 	infoMap := d["info"].(map[string]interface{})
@@ -62,6 +64,7 @@ func newTorrentFile(dict interface{}) *TorrentFile {
 	}
 }
 
+// newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path to a torrent file
 func newTorrentFileFromFilePath(filePath string) *TorrentFile {
 	contents, err := parseFile(filePath)
 	if err != nil {
@@ -76,6 +79,7 @@ func newTorrentFileFromFilePath(filePath string) *TorrentFile {
 	return newTorrentFile(decoded)
 }
 
+// newInfo serves as a constructor for the Info struct
 func newInfo(infoMap map[string]interface{}) *Info {
 	return &Info{
 		length:      infoMap["length"].(int),
@@ -85,15 +89,18 @@ func newInfo(infoMap map[string]interface{}) *Info {
 	}
 }
 
-func (t TorrentFile) getTrackerURL() string {
+// getTrackerUrl returns the URL to the tracker server stored in the Announce key of the torrent file.
+func (t TorrentFile) getTrackerUrl() string {
 	return t.Announce
 }
 
+// Returns a string representation of the torrent file
 func (t TorrentFile) String() string {
 	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
 		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength, t.Info.getPieceHashesStr())
 }
 
+// getInfoHash returns the SHA1 hash of the bencoded info dictionary
 func (i Info) getInfoHash() []byte {
 	hasher := sha1.New()
 	bencodedBytes := i.bencodeInfo()
@@ -103,6 +110,12 @@ func (i Info) getInfoHash() []byte {
 	return sha
 }
 
+// getHexInfoHash returns the info hash in hexadecimal representation
+func (i Info) getHexInfoHash() string {
+	return fmt.Sprintf("%x", i.getInfoHash())
+}
+
+// bencodeInfo takes all the information in the information dictionary and bencodes it in lexicographical order
 func (i Info) bencodeInfo() []byte {
 	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.length))
 	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.name), i.name))
@@ -136,9 +149,10 @@ func (i Info) getPieceHashesStr() string {
 	return strings.TrimSpace(pieceHashesStr)
 }
 
+// TrackerRequest represents a request made to a tracker server
 type TrackerRequest struct {
 	TrackerURL string
-	InfoHash   string //urlencoded 20-byte long info hash
+	InfoHash   string // urlencoded 20-byte long info hash
 	PeerId     string
 	Port       int
 	Uploaded   int
@@ -147,6 +161,7 @@ type TrackerRequest struct {
 	Compact    int
 }
 
+// newTrackerRequest serves as a constructor for the TrackerRequest struct.
 func newTrackerRequest(trackerUrl string, infoHash string, peerId string, left int) *TrackerRequest {
 	return &TrackerRequest{
 		TrackerURL: trackerUrl,
@@ -160,18 +175,23 @@ func newTrackerRequest(trackerUrl string, infoHash string, peerId string, left i
 	}
 }
 
-func (tr TrackerRequest) urlEncodeInfoHash() string {
-	urlEncodedHash := ""
-	ih := tr.InfoHash
-	for i := 0; i < len(ih); i += 2 {
-		urlEncodedHash += fmt.Sprintf("%%%s%s", string(ih[i]), string(ih[i+1]))
-	}
-	return urlEncodedHash
-}
-
+// getFullUrl returns the full url sent to a peer for a handshake
 func (tr TrackerRequest) getFullUrl() string {
 	return fmt.Sprintf("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
-		tr.TrackerURL, tr.urlEncodeInfoHash(), tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left, tr.Compact)
+		tr.TrackerURL, tr.InfoHash, tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left, tr.Compact)
+}
+
+func (tr TrackerRequest) Send() {
+
+}
+
+// urlEncodeInfoHash URL-encodes a hexadecimal-represented info hash
+func urlEncodeInfoHash(infoHash string) string {
+	urlEncodedHash := ""
+	for i := 0; i < len(infoHash); i += 2 {
+		urlEncodedHash += fmt.Sprintf("%%%s%s", string(infoHash[i]), string(infoHash[i+1]))
+	}
+	return urlEncodedHash
 }
 
 func main() {
@@ -200,8 +220,8 @@ func main() {
 		t := newTorrentFileFromFilePath(filePath)
 
 		var (
-			trackerUrl = t.Announce
-			infoHash   = fmt.Sprintf("%x", t.Info.getInfoHash())
+			trackerUrl = t.getTrackerUrl()
+			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
 			left       = t.Info.length
 		)
@@ -255,20 +275,14 @@ func main() {
 			return
 		}
 		message = append(message, peerId...)
-		//fmt.Println(message)
 		_, err = conn.Write(message)
-		//writer := bufio.NewWriter(conn)
-		//n, err := writer.Write(message)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		//fmt.Println(n)
-		//fmt.Println(reader.Buffered())
 		respBytes := make([]byte, 68)
 		_, err = conn.Read(respBytes)
 
-		//n, err = io.ReadFull(reader, respBytes)
 		if err != nil {
 			fmt.Println(err)
 			return
