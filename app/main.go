@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -51,8 +52,8 @@ type Info struct {
 	pieces      []byte
 }
 
-// newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of a torrent file's
-// contents
+// newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of
+// a torrent file's contents
 func newTorrentFile(dict interface{}) *TorrentFile {
 	d := dict.(map[string]interface{})
 	infoMap := d["info"].(map[string]interface{})
@@ -63,7 +64,8 @@ func newTorrentFile(dict interface{}) *TorrentFile {
 	}
 }
 
-// newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path to a torrent file
+// newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path
+// to a torrent file
 func newTorrentFileFromFilePath(filePath string) (*TorrentFile, error) {
 	contents, err := parseFile(filePath)
 	if err != nil {
@@ -87,15 +89,19 @@ func newInfo(infoMap map[string]interface{}) *Info {
 	}
 }
 
-// getTrackerUrl returns the URL to the tracker server stored in the Announce key of the torrent file.
+// getTrackerUrl returns the URL to the tracker server stored in the Announce key of the torrent
+// file.
 func (t TorrentFile) getTrackerUrl() string {
 	return t.Announce
 }
 
 // Returns a string representation of the torrent file
 func (t TorrentFile) String() string {
-	return fmt.Sprintf("Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
-		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength, t.Info.getPieceHashesStr())
+	return fmt.Sprintf(
+		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
+		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength,
+		t.Info.getPieceHashesStr(),
+	)
 }
 
 // getInfoHash returns the SHA1 hash of the bencoded info dictionary
@@ -113,7 +119,8 @@ func (i Info) getHexInfoHash() string {
 	return fmt.Sprintf("%x", i.getInfoHash())
 }
 
-// bencodeInfo takes all the information in the information dictionary and bencodes it in lexicographical order
+// bencodeInfo takes all the information in the information dictionary and bencodes it in
+// lexicographical order
 func (i Info) bencodeInfo() []byte {
 	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.length))
 	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.name), i.name))
@@ -122,7 +129,8 @@ func (i Info) bencodeInfo() []byte {
 	pieces = append(pieces, i.pieces...)
 
 	infoB := []byte{'d'}
-	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...), 'e')
+	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...),
+		'e')
 	return infoB
 
 }
@@ -160,7 +168,9 @@ type TrackerRequest struct {
 }
 
 // newTrackerRequest serves as a constructor for the TrackerRequest struct.
-func newTrackerRequest(trackerUrl string, infoHash string, peerId string, left int) *TrackerRequest {
+func newTrackerRequest(
+	trackerUrl string, infoHash string, peerId string, left int) *TrackerRequest {
+
 	return &TrackerRequest{
 		TrackerURL: trackerUrl,
 		InfoHash:   infoHash,
@@ -175,8 +185,10 @@ func newTrackerRequest(trackerUrl string, infoHash string, peerId string, left i
 
 // getFullUrl returns the full url sent to a peer for a handshake
 func (tr TrackerRequest) getFullUrl() string {
-	return fmt.Sprintf("%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
-		tr.TrackerURL, tr.InfoHash, tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left, tr.Compact)
+	return fmt.Sprintf(
+		"%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
+		tr.TrackerURL, tr.InfoHash, tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left,
+		tr.Compact)
 }
 
 func (tr TrackerRequest) SendRequest() ([]byte, error) {
@@ -201,7 +213,58 @@ func urlEncodeInfoHash(infoHash string) string {
 	return urlEncodedHash
 }
 
-func constructPeerMessage(t TorrentFile) ([]byte, error) {
+type TrackerResponse struct {
+	Interval int
+	Peers    []string
+}
+
+func newTrackerResponse(interval int, peers []string) *TrackerResponse {
+	return &TrackerResponse{
+		Interval: interval,
+		Peers:    peers,
+	}
+}
+
+func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
+	decoded, _, err := decode(response, 0)
+	if err != nil {
+		fmt.Println("error decoding tracker response body: ", err)
+		return nil, err
+	}
+	d := decoded.(map[string]interface{})
+
+	var (
+		interval  = d["interval"].(int)
+		peerBytes = d["peers"].([]byte)
+		peers     []string
+	)
+
+	for i := 0; i < len(peerBytes); i += 6 {
+		port := binary.BigEndian.Uint16(peerBytes[i+4 : i+6])
+		address := fmt.Sprintf(
+			"%d.%d.%d.%d:%d", peerBytes[i], peerBytes[i+1], peerBytes[i+2], peerBytes[i+3],
+			port)
+		peers = append(peers, address)
+	}
+
+	return newTrackerResponse(interval, peers), nil
+}
+
+func (tres TrackerResponse) PeersString() string {
+	peers := tres.Peers
+	peersString := ""
+	for _, peer := range peers {
+		peersString += fmt.Sprintf("%s\n", peer)
+	}
+
+	return strings.TrimSpace(peersString)
+}
+
+func (tres TrackerResponse) getPeers() []string {
+	return tres.Peers
+}
+
+func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
 	var message []byte
 	message = append(message, 19)
 	message = append(message, []byte("BitTorrent protocol")...)
@@ -216,27 +279,22 @@ func constructPeerMessage(t TorrentFile) ([]byte, error) {
 	return message, nil
 }
 
-func handshake(peerAddress string, t TorrentFile) ([]byte, error) {
-	conn, err := net.Dial("tcp", peerAddress)
-	if err != nil {
-		return nil, fmt.Errorf("error opening TCP connection to peer: %w", err)
-	}
-	defer conn.Close()
-	message, err := constructPeerMessage(t)
+func handshake(conn *net.Conn, t TorrentFile) ([]byte, error) {
+	c := *conn
+	message, err := constructHandshakeMessage(t)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing peer handshake message: %w", err)
 	}
-	_, err = conn.Write(message)
+	_, err = c.Write(message)
 	if err != nil {
 		return nil, fmt.Errorf("error writing peer handshake message to connection: %w", err)
 
 	}
 	respBytes := make([]byte, 68)
-	_, err = conn.Read(respBytes)
+	_, err = c.Read(respBytes)
 
 	if err != nil {
-		return nil, fmt.Errorf("error reading peer handshake response: ", err)
-
+		return nil, fmt.Errorf("error reading peer handshake response: %w", err)
 	}
 
 	return respBytes, nil
@@ -248,6 +306,12 @@ func downloadPiece() {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	command := os.Args[1]
 
 	switch command {
@@ -256,8 +320,7 @@ func main() {
 
 		decoded, _, err := decode([]byte(bencodedValue), 0)
 		if err != nil {
-			fmt.Println("error decoding bencoded value: ", err)
-			return
+			return err
 		}
 		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
@@ -266,16 +329,14 @@ func main() {
 		filePath := os.Args[2]
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
-			fmt.Println(err.Error())
-			return
+			return err
 		}
 		fmt.Println(t.String())
 	case "peers":
 		filePath := os.Args[2]
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
-			fmt.Println(err.Error())
-			return
+			return err
 		}
 
 		var (
@@ -288,43 +349,66 @@ func main() {
 		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
 		body, err := r.SendRequest()
 		if err != nil {
-			fmt.Println(err.Error())
-			return
+			return err
 		}
 
-		decoded, _, err := decode(body, 0)
+		tres, err := newTrackerResponseFromBytes(body)
 		if err != nil {
-			fmt.Println("error decoding tracker response body: ", err)
-			return
+			return err
 		}
-		d := decoded.(map[string]interface{})
-		p := d["peers"].([]byte)
-		for i := 0; i < len(p); i += 6 {
-			port := binary.BigEndian.Uint16(p[i+4 : i+6])
-			address := fmt.Sprintf("%d.%d.%d.%d:%d", p[i], p[i+1], p[i+2], p[i+3], port)
-			fmt.Println(address)
-		}
+
+		fmt.Println(tres.PeersString())
+
 	case "handshake":
 		filePath := os.Args[2]
 		peerAddress := os.Args[3]
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
-
-		response, err := handshake(peerAddress, *t)
+		conn, err := net.Dial("tcp", peerAddress)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return fmt.Errorf("error opening TCP connection to peer: %w", err)
+		}
+		defer conn.Close()
+
+		response, err := handshake(&conn, *t)
+		if err != nil {
+			return err
 		}
 
 		peerResponseId := fmt.Sprintf("Peer ID: %x", response[48:])
 		fmt.Println(peerResponseId)
 	case "download_piece":
+		filePath := os.Args[4]
+
+		t, err := newTorrentFileFromFilePath(filePath)
+		if err != nil {
+			return err
+		}
+
+		var (
+			trackerUrl = t.getTrackerUrl()
+			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
+			peerId     = "leofeopeoluvsanayeli"
+			left       = t.Info.length
+		)
+
+		treq := newTrackerRequest(trackerUrl, infoHash, peerId, left)
+		body, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+		tres, err := newTrackerResponseFromBytes(body)
+		if err != nil {
+			return err
+		}
+
+		peers := tres.getPeers()
+		fmt.Print(peers[0])
 
 	default:
-		fmt.Println("Unknown command: " + command)
-		return
+		return fmt.Errorf("unknown command: %s", command)
 	}
+	return nil
 }
