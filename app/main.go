@@ -216,6 +216,37 @@ func constructPeerMessage(t TorrentFile) ([]byte, error) {
 	return message, nil
 }
 
+func handshake(peerAddress string, t TorrentFile) ([]byte, error) {
+	conn, err := net.Dial("tcp", peerAddress)
+	if err != nil {
+		return nil, fmt.Errorf("error opening TCP connection to peer: %w", err)
+	}
+	defer conn.Close()
+	message, err := constructPeerMessage(t)
+	if err != nil {
+		return nil, fmt.Errorf("error constructing peer handshake message: %w", err)
+	}
+	_, err = conn.Write(message)
+	if err != nil {
+		return nil, fmt.Errorf("error writing peer handshake message to connection: %w", err)
+
+	}
+	respBytes := make([]byte, 68)
+	_, err = conn.Read(respBytes)
+
+	if err != nil {
+		return nil, fmt.Errorf("error reading peer handshake response: ", err)
+
+	}
+
+	return respBytes, nil
+
+}
+
+func downloadPiece() {
+
+}
+
 func main() {
 	command := os.Args[1]
 
@@ -226,7 +257,7 @@ func main() {
 		decoded, _, err := decode([]byte(bencodedValue), 0)
 		if err != nil {
 			fmt.Println("error decoding bencoded value: ", err)
-			os.Exit(1)
+			return
 		}
 		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
@@ -236,6 +267,7 @@ func main() {
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
 			fmt.Println(err.Error())
+			return
 		}
 		fmt.Println(t.String())
 	case "peers":
@@ -243,6 +275,7 @@ func main() {
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
 			fmt.Println(err.Error())
+			return
 		}
 
 		var (
@@ -277,35 +310,21 @@ func main() {
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
 			fmt.Println(err)
-		}
-		conn, err := net.Dial("tcp", peerAddress)
-		if err != nil {
-			fmt.Println("error opening TCP connection to peer: ", err)
-			return
-		}
-		defer conn.Close()
-		message, err := constructPeerMessage(*t)
-		if err != nil {
-			fmt.Println("error constructing peer handshake message: ", err)
-		}
-		_, err = conn.Write(message)
-		if err != nil {
-			fmt.Println("error writing peer handshake message to connection: ", err)
-			return
-		}
-		respBytes := make([]byte, 68)
-		_, err = conn.Read(respBytes)
-
-		if err != nil {
-			fmt.Println("error reading peer handshake response: ", err)
 			return
 		}
 
-		peerResponseId := fmt.Sprintf("Peer ID: %x", respBytes[48:])
+		response, err := handshake(peerAddress, *t)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		peerResponseId := fmt.Sprintf("Peer ID: %x", response[48:])
 		fmt.Println(peerResponseId)
 	case "download_piece":
+
 	default:
 		fmt.Println("Unknown command: " + command)
-		os.Exit(1)
+		return
 	}
 }
