@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -18,13 +17,13 @@ import (
 func parseFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("error opening torrent file: %v", err)
+		return nil, fmt.Errorf("error opening torrent file: %w", err)
 	}
 	defer f.Close()
 
 	fileInfo, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("error reading file info: %v", err)
+		return nil, fmt.Errorf("error reading file info: %w", err)
 	}
 
 	fileSize := fileInfo.Size()
@@ -33,7 +32,7 @@ func parseFile(path string) ([]byte, error) {
 
 	_, err = f.Read(fileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error reading file into byte slice: %v", err)
+		return nil, fmt.Errorf("error reading file into byte slice: %w", err)
 	}
 
 	return fileBytes, nil
@@ -65,18 +64,17 @@ func newTorrentFile(dict interface{}) *TorrentFile {
 }
 
 // newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path to a torrent file
-func newTorrentFileFromFilePath(filePath string) *TorrentFile {
+func newTorrentFileFromFilePath(filePath string) (*TorrentFile, error) {
 	contents, err := parseFile(filePath)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		return nil, fmt.Errorf("error parsing torrent file: %w", err)
 	}
 	decoded, _, err := decode(contents, 0)
 	if err != nil {
-		fmt.Println(err)
+		return nil, fmt.Errorf("error decoding torrent file path contents: %w", err)
 	}
 
-	return newTorrentFile(decoded)
+	return newTorrentFile(decoded), nil
 }
 
 // newInfo serves as a constructor for the Info struct
@@ -184,13 +182,12 @@ func (tr TrackerRequest) getFullUrl() string {
 func (tr TrackerRequest) SendRequest() ([]byte, error) {
 	resp, err := http.Get(tr.getFullUrl())
 	if err != nil {
-		fmt.Println("Error connecting to server: ", err)
-		return nil, err
+		return nil, fmt.Errorf("error sending request to tracker server: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatalf("Error reading response body: %v", err)
+		return nil, fmt.Errorf("error reading tracker response body: %w", err)
 	}
 	return body, nil
 }
@@ -213,7 +210,7 @@ func constructPeerMessage(t TorrentFile) ([]byte, error) {
 	peerId := make([]byte, 20)
 	_, err := rand.Read(peerId)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error constructing random 20-byte byte slice: %w", err)
 	}
 	message = append(message, peerId...)
 	return message, nil
@@ -228,19 +225,25 @@ func main() {
 
 		decoded, _, err := decode([]byte(bencodedValue), 0)
 		if err != nil {
-			fmt.Println(err)
-			return
+			fmt.Println("error decoding bencoded value: ", err)
+			os.Exit(1)
 		}
 		jsonOutput, err := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
 
 	case "info":
 		filePath := os.Args[2]
-		t := newTorrentFileFromFilePath(filePath)
+		t, err := newTorrentFileFromFilePath(filePath)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 		fmt.Println(t.String())
 	case "peers":
 		filePath := os.Args[2]
-		t := newTorrentFileFromFilePath(filePath)
+		t, err := newTorrentFileFromFilePath(filePath)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
 
 		var (
 			trackerUrl = t.getTrackerUrl()
@@ -252,13 +255,13 @@ func main() {
 		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
 		body, err := r.SendRequest()
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println(err.Error())
 			return
 		}
 
 		decoded, _, err := decode(body, 0)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("error decoding tracker response body: ", err)
 			return
 		}
 		d := decoded.(map[string]interface{})
@@ -271,46 +274,38 @@ func main() {
 	case "handshake":
 		filePath := os.Args[2]
 		peerAddress := os.Args[3]
-		t := newTorrentFileFromFilePath(filePath)
-		conn, err := net.Dial("tcp", peerAddress)
+		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
 			fmt.Println(err)
+		}
+		conn, err := net.Dial("tcp", peerAddress)
+		if err != nil {
+			fmt.Println("error opening TCP connection to peer: ", err)
 			return
 		}
 		defer conn.Close()
 		message, err := constructPeerMessage(*t)
 		if err != nil {
-			fmt.Println(err)
-			return
+			fmt.Println("error constructing peer handshake message: ", err)
 		}
 		_, err = conn.Write(message)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("error writing peer handshake message to connection: ", err)
 			return
 		}
 		respBytes := make([]byte, 68)
 		_, err = conn.Read(respBytes)
 
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("error reading peer handshake response: ", err)
 			return
 		}
+
 		peerResponseId := fmt.Sprintf("Peer ID: %x", respBytes[48:])
 		fmt.Println(peerResponseId)
+	case "download_piece":
 	default:
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
-	}
-
-	if command == "decode" {
-
-	} else if command == "info" {
-
-	} else if command == "peers" {
-
-	} else if command == "handshake" {
-
-	} else {
-
 	}
 }
