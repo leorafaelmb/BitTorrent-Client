@@ -184,15 +184,15 @@ func newTrackerRequest(
 }
 
 // getFullUrl returns the full url sent to a peer for a handshake
-func (tr TrackerRequest) getFullUrl() string {
+func (treq TrackerRequest) getFullUrl() string {
 	return fmt.Sprintf(
 		"%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
-		tr.TrackerURL, tr.InfoHash, tr.PeerId, tr.Port, tr.Uploaded, tr.Downloaded, tr.Left,
-		tr.Compact)
+		treq.TrackerURL, treq.InfoHash, treq.PeerId, treq.Port, treq.Uploaded, treq.Downloaded,
+		treq.Left, treq.Compact)
 }
 
-func (tr TrackerRequest) SendRequest() ([]byte, error) {
-	resp, err := http.Get(tr.getFullUrl())
+func (treq TrackerRequest) SendRequest() ([]byte, error) {
+	resp, err := http.Get(treq.getFullUrl())
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to tracker server: %w", err)
 	}
