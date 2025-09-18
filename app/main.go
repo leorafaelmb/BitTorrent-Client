@@ -307,9 +307,44 @@ func run() error {
 
 		// unchoke
 		peerMessage, err = readPeerMessage(conn)
-		if peerMessage.id != 0 {
-			return fmt.Errorf("incorrect message id\nexpected: 0, got: %d", peerMessage.id)
+		if peerMessage.id != 1 {
+			return fmt.Errorf("incorrect message id\nexpected: 1, got: %d", peerMessage.id)
 		}
+		//pieceLength := t.Info.pieceLength
+		//request msg
+		var requestPayload []byte
+		var (
+			requestLength = make([]byte, 4)
+			index         = make([]byte, 4)
+			begin         = make([]byte, 4)
+			length        = make([]byte, 4)
+		)
+		binary.BigEndian.PutUint32(requestLength, 13)
+		binary.BigEndian.PutUint32(index, 0)
+		binary.BigEndian.PutUint32(begin, 0)
+		binary.BigEndian.PutUint32(length, 1<<14)
+
+		requestID := []byte{byte(6)}
+		requestPayload = append(requestPayload, index...)
+		requestPayload = append(requestPayload, begin...)
+		requestPayload = append(requestPayload, length...)
+
+		var request []byte
+		request = append(request, requestLength...)
+		request = append(request, requestID...)
+		request = append(request, requestPayload...)
+
+		conn.Write(request)
+
+		var (
+			responseLength = make([]byte, 4)
+			responseID     = make([]byte, 1)
+		)
+
+		conn.Read(responseLength)
+		conn.Read(responseID)
+
+		fmt.Println(responseID[0])
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
