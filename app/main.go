@@ -129,29 +129,23 @@ func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
 	return message, nil
 }
 
-func handshake(conn *net.Conn, t TorrentFile) ([]byte, error) {
-	c := *conn
+func handshake(conn net.Conn, t TorrentFile) ([]byte, error) {
 	message, err := constructHandshakeMessage(t)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing peer handshake message: %w", err)
 	}
-	_, err = c.Write(message)
+	_, err = conn.Write(message)
 	if err != nil {
 		return nil, fmt.Errorf("error writing peer handshake message to connection: %w", err)
 
 	}
 	respBytes := make([]byte, 68)
-	_, err = c.Read(respBytes)
+	_, err = conn.Read(respBytes)
 
 	if err != nil {
 		return nil, fmt.Errorf("error reading peer handshake response: %w", err)
 	}
-
 	return respBytes, nil
-
-}
-
-func downloadPiece() {
 
 }
 
@@ -222,7 +216,7 @@ func run() error {
 		}
 		defer conn.Close()
 
-		response, err := handshake(&conn, *t)
+		response, err := handshake(conn, *t)
 		if err != nil {
 			return err
 		}
