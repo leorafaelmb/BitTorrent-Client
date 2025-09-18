@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -180,6 +181,24 @@ func handshake(conn net.Conn, t TorrentFile) ([]byte, error) {
 
 }
 
+func constructPieceRequest(index, begin, length uint32) []byte {
+	request := make([]byte, 17)
+
+	// Set message length
+	binary.BigEndian.PutUint32(request[0:4], 13)
+
+	// Set message ID
+	request[4] = byte(6)
+
+	// Set payload: index, begin, and length respectively
+	binary.BigEndian.PutUint32(request[5:9], index)
+	binary.BigEndian.PutUint32(request[9:13], begin)
+	binary.BigEndian.PutUint32(request[13:17], length)
+
+	return request
+
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -256,6 +275,10 @@ func run() error {
 		fmt.Println(peerResponseId)
 	case "download_piece":
 		filePath := os.Args[4]
+		pieceIndex, err := strconv.Atoi(os.Args[5])
+		if err != nil {
+			return err
+		}
 
 		t, err := newTorrentFileFromFilePath(filePath)
 		if err != nil {
@@ -310,41 +333,14 @@ func run() error {
 		if peerMessage.id != 1 {
 			return fmt.Errorf("incorrect message id\nexpected: 1, got: %d", peerMessage.id)
 		}
+
 		//pieceLength := t.Info.pieceLength
-		//request msg
-		var requestPayload []byte
-		var (
-			requestLength = make([]byte, 4)
-			index         = make([]byte, 4)
-			begin         = make([]byte, 4)
-			length        = make([]byte, 4)
-		)
-		binary.BigEndian.PutUint32(requestLength, 13)
-		binary.BigEndian.PutUint32(index, 0)
-		binary.BigEndian.PutUint32(begin, 0)
-		binary.BigEndian.PutUint32(length, 1<<14)
 
-		requestID := []byte{byte(6)}
-		requestPayload = append(requestPayload, index...)
-		requestPayload = append(requestPayload, begin...)
-		requestPayload = append(requestPayload, length...)
-
-		var request []byte
-		request = append(request, requestLength...)
-		request = append(request, requestID...)
-		request = append(request, requestPayload...)
-
+		request := constructPieceRequest(uint32(pieceIndex), 0, 1<<14)
 		conn.Write(request)
 
-		var (
-			responseLength = make([]byte, 4)
-			responseID     = make([]byte, 1)
-		)
-
-		conn.Read(responseLength)
-		conn.Read(responseID)
-
-		fmt.Println(responseID[0])
+		m, err := readPeerMessage(conn)
+		fmt.Println(m.id)
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
