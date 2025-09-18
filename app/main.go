@@ -206,7 +206,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		fmt.Println(t.String())
+		fmt.Println(t)
 	case "peers":
 		filePath := os.Args[2]
 		t, err := newTorrentFileFromFilePath(filePath)
