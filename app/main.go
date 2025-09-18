@@ -114,9 +114,41 @@ func (tres TrackerResponse) getPeers() []string {
 	return tres.Peers
 }
 
+type PeerMessage struct {
+	length  uint32
+	id      int
+	payload []byte
+}
+
+func newPeerMessage(length uint32, id int, payload []byte) *PeerMessage {
+	return &PeerMessage{
+		length:  length,
+		id:      id,
+		payload: payload,
+	}
+}
+
+func readPeerMessage(conn net.Conn) (*PeerMessage, error) {
+	lenBytes := make([]byte, 4)
+	if _, err := conn.Read(lenBytes); err != nil {
+		return nil, fmt.Errorf("error reading length of peer message: %w", err)
+	}
+	length := binary.BigEndian.Uint32(lenBytes)
+	id := make([]byte, 1)
+	if _, err := conn.Read(id); err != nil {
+		return nil, fmt.Errorf("error reading message ID of peer message: %w", err)
+	}
+	payload := make([]byte, length-1)
+	if _, err := conn.Read(payload); err != nil {
+		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
+	}
+
+	return newPeerMessage(length, int(id[0]), payload), nil
+}
+
 func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
 	var message []byte
-	message = append(message, 19)
+	message = append(message, byte(19))
 	message = append(message, []byte("BitTorrent protocol")...)
 	message = append(message, make([]byte, 8)...)
 	message = append(message, t.Info.getInfoHash()...)
@@ -249,7 +281,36 @@ func run() error {
 		}
 
 		peers := tres.getPeers()
-		fmt.Print(peers[0])
+		conn, err := net.Dial("tcp", peers[0])
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		resp, err := handshake(conn, *t)
+		if err != nil {
+			return err
+		}
+		fmt.Println(fmt.Sprintf("%x", resp))
+
+		// bitfield
+		peerMessage, err := readPeerMessage(conn)
+		if err != nil {
+			return err
+		}
+
+		if peerMessage.id != 5 {
+			return fmt.Errorf("incorrect message id\nexpected: 5, got: %d", peerMessage.id)
+		}
+
+		// interested msg
+		conn.Write([]byte{0, 0, 0, 1, 2})
+
+		// unchoke
+		peerMessage, err = readPeerMessage(conn)
+		if peerMessage.id != 0 {
+			return fmt.Errorf("incorrect message id\nexpected: 0, got: %d", peerMessage.id)
+		}
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
