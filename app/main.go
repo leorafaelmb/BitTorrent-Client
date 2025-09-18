@@ -63,15 +63,6 @@ func (treq TrackerRequest) SendRequest() ([]byte, error) {
 	return body, nil
 }
 
-// urlEncodeInfoHash URL-encodes a hexadecimal-represented info hash
-func urlEncodeInfoHash(infoHash string) string {
-	urlEncodedHash := ""
-	for i := 0; i < len(infoHash); i += 2 {
-		urlEncodedHash += fmt.Sprintf("%%%s%s", string(infoHash[i]), string(infoHash[i+1]))
-	}
-	return urlEncodedHash
-}
-
 type TrackerResponse struct {
 	Interval int
 	Peers    []string
