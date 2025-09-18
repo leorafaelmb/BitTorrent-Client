@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha1"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
