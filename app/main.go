@@ -190,13 +190,13 @@ func run() error {
 		}
 
 		var (
-			trackerUrl = t.getTrackerUrl()
+			trackerURL = t.getTrackerURL()
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
 			left       = t.Info.length
 		)
 
-		r := newTrackerRequest(trackerUrl, infoHash, peerId, left)
+		r := newTrackerRequest(trackerURL, infoHash, peerId, left)
 		body, err := r.SendRequest()
 		if err != nil {
 			return err
@@ -238,13 +238,13 @@ func run() error {
 		}
 
 		var (
-			trackerUrl = t.getTrackerUrl()
+			trackerURL = t.getTrackerURL()
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
 			left       = t.Info.length
 		)
 
-		treq := newTrackerRequest(trackerUrl, infoHash, peerId, left)
+		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
 		body, err := treq.SendRequest()
 		if err != nil {
 			return err

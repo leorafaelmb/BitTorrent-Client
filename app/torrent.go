@@ -82,9 +82,9 @@ func newInfo(infoMap map[string]interface{}) *Info {
 	}
 }
 
-// getTrackerUrl returns the URL to the tracker server stored in the Announce key of the torrent
+// getTrackerURL returns the URL to the tracker server stored in the Announce key of the torrent
 // file.
-func (t TorrentFile) getTrackerUrl() string {
+func (t TorrentFile) getTrackerURL() string {
 	return t.Announce
 }
 
