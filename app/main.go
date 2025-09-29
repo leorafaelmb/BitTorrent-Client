@@ -176,7 +176,7 @@ func run() error {
 		}
 
 		var (
-			trackerURL = t.getTrackerURL()
+			trackerURL = t.Announce
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
 			left       = t.Info.length
@@ -228,7 +228,7 @@ func run() error {
 		}
 
 		var (
-			trackerURL = t.getTrackerURL()
+			trackerURL = t.Announce
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
 			left       = t.Info.length
