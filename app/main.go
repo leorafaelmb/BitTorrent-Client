@@ -28,16 +28,20 @@ func newPeerMessage(length uint32, id int, payload []byte) *PeerMessage {
 
 func readPeerMessage(conn net.Conn) (*PeerMessage, error) {
 	lenBytes := make([]byte, 4)
-	if _, err := conn.Read(lenBytes); err != nil {
+	_, err := io.ReadFull(conn, lenBytes)
+	if err != nil {
 		return nil, fmt.Errorf("error reading length of peer message: %w", err)
 	}
 	length := binary.BigEndian.Uint32(lenBytes)
+
 	id := make([]byte, 1)
-	if _, err := conn.Read(id); err != nil {
+	_, err = io.ReadFull(conn, id)
+	if err != nil {
 		return nil, fmt.Errorf("error reading message ID of peer message: %w", err)
 	}
 	payload := make([]byte, length-1)
-	if _, err := conn.Read(payload); err != nil {
+	_, err = io.ReadFull(conn, payload)
+	if err != nil {
 		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
 	}
 
