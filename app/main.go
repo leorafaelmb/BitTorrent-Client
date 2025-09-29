@@ -101,6 +101,46 @@ func constructPieceRequest(index, begin, length uint32) []byte {
 
 }
 
+func getBlock(conn net.Conn, index, begin, length uint32) ([]byte, error) {
+	request := constructPieceRequest(index, begin, length)
+	if _, err := conn.Write(request); err != nil {
+		return nil, err
+	}
+
+	m, err := readPeerMessage(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.payload[8:], nil
+}
+
+func getPiece(conn net.Conn, pieceLength, pieceIndex uint32) ([]byte, error) {
+	piece := make([]byte, 0, pieceLength)
+
+	var blockLen uint32 = 1 << 14
+	var begin uint32 = 0
+
+	for pieceLength > 0 {
+		if pieceLength < 1<<14 {
+			blockLen = pieceLength
+		}
+
+		block, err := getBlock(conn, pieceIndex, begin, blockLen)
+		if err != nil {
+			return nil,
+				fmt.Errorf("error getting piece %d at byte offset %d with length %d: %w\n",
+					pieceIndex, begin, blockLen, err)
+		}
+
+		piece = append(piece, block...)
+		begin += blockLen
+		pieceLength -= blockLen
+	}
+
+	return piece, nil
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -211,11 +251,10 @@ func run() error {
 		}
 		defer conn.Close()
 
-		resp, err := handshake(conn, *t)
+		_, err = handshake(conn, *t)
 		if err != nil {
 			return err
 		}
-		fmt.Println(fmt.Sprintf("%x", resp))
 
 		// bitfield
 		peerMessage, err := readPeerMessage(conn)
@@ -224,25 +263,27 @@ func run() error {
 		}
 
 		if peerMessage.id != 5 {
-			return fmt.Errorf("incorrect message id\nexpected: 5, got: %d", peerMessage.id)
+			return fmt.Errorf("incorrect message id: expected 5 got %d", peerMessage.id)
 		}
 
 		// interested msg
-		conn.Write([]byte{0, 0, 0, 1, 2})
+		if _, err = conn.Write([]byte{0, 0, 0, 1, 2}); err != nil {
+			return err
+		}
 
 		// unchoke
 		peerMessage, err = readPeerMessage(conn)
 		if peerMessage.id != 1 {
-			return fmt.Errorf("incorrect message id\nexpected: 1, got: %d", peerMessage.id)
+			return fmt.Errorf("incorrect message id: expected 1 got %d", peerMessage.id)
 		}
 
-		//pieceLength := t.Info.pieceLength
+		pieceLength := uint32(t.Info.pieceLength)
 
-		request := constructPieceRequest(uint32(pieceIndex), 0, 1<<14)
-		conn.Write(request)
-
-		m, err := readPeerMessage(conn)
-		fmt.Println(m.id)
+		piece, err := getPiece(conn, pieceLength, uint32(pieceIndex))
+		if err != nil {
+			return err
+		}
+		fmt.Println(len(piece))
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
