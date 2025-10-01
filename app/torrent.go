@@ -14,7 +14,6 @@ func parseFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("error opening torrent file: %w", err)
 	}
 	defer f.Close()
-
 	fileInfo, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("error reading file info: %w", err)

@@ -27,21 +27,20 @@ func newPeerMessage(length uint32, id int, payload []byte) *PeerMessage {
 }
 
 func readPeerMessage(conn net.Conn) (*PeerMessage, error) {
+	var err error
+
 	lenBytes := make([]byte, 4)
-	_, err := io.ReadFull(conn, lenBytes)
-	if err != nil {
+	if _, err = io.ReadFull(conn, lenBytes); err != nil {
 		return nil, fmt.Errorf("error reading length of peer message: %w", err)
 	}
 	length := binary.BigEndian.Uint32(lenBytes)
 
 	id := make([]byte, 1)
-	_, err = io.ReadFull(conn, id)
-	if err != nil {
+	if _, err = io.ReadFull(conn, id); err != nil {
 		return nil, fmt.Errorf("error reading message ID of peer message: %w", err)
 	}
 	payload := make([]byte, length-1)
-	_, err = io.ReadFull(conn, payload)
-	if err != nil {
+	if _, err = io.ReadFull(conn, payload); err != nil {
 		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
 	}
 
@@ -216,13 +215,14 @@ func run() error {
 		peerResponseId := fmt.Sprintf("Peer ID: %x", response[48:])
 		fmt.Println(peerResponseId)
 	case "download_piece":
-		filePath := os.Args[4]
+		downloadFilePath := os.Args[3]
+		torrentFilePath := os.Args[4]
 		pieceIndex, err := strconv.Atoi(os.Args[5])
 		if err != nil {
 			return err
 		}
 
-		t, err := newTorrentFileFromFilePath(filePath)
+		t, err := newTorrentFileFromFilePath(torrentFilePath)
 		if err != nil {
 			return err
 		}
@@ -276,14 +276,26 @@ func run() error {
 		if peerMessage.id != 1 {
 			return fmt.Errorf("incorrect message id: expected 1 got %d", peerMessage.id)
 		}
-
 		pieceLength := uint32(t.Info.pieceLength)
+
+		if pieceIndex == len(t.Info.pieces)/20-1 {
+			pieceLength = uint32(t.Info.length) - pieceLength*uint32(len(t.Info.pieces)/20-1)
+		}
 
 		piece, err := getPiece(conn, pieceLength, uint32(pieceIndex))
 		if err != nil {
 			return err
 		}
-		fmt.Println(len(piece))
+
+		f, err := os.Create(downloadFilePath)
+		if err != nil {
+			return err
+		}
+
+		defer f.Close()
+		if _, err = f.Write(piece); err != nil {
+			return err
+		}
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
