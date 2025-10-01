@@ -75,7 +75,10 @@ func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
 		fmt.Println("error decoding tracker response body: ", err)
 		return nil, err
 	}
-	d := decoded.(map[string]interface{})
+	d, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("decoded did not return map[string]interface{}")
+	}
 
 	var (
 		interval  = d["interval"].(int)

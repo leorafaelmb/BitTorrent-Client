@@ -46,14 +46,27 @@ type Info struct {
 
 // newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of
 // a torrent file's contents
-func newTorrentFile(dict interface{}) *TorrentFile {
-	d := dict.(map[string]interface{})
-	infoMap := d["info"].(map[string]interface{})
-	info := newInfo(infoMap)
-	return &TorrentFile{
-		Announce: d["announce"].(string),
-		Info:     info,
+func newTorrentFile(dict interface{}) (*TorrentFile, error) {
+	d, ok := dict.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("newTorrent: argument is not a map")
 	}
+	announce, ok := d["announce"].(string)
+	if !ok {
+		return nil, fmt.Errorf("newTorrent: announce is not a string")
+	}
+	infoMap, ok := d["info"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("newTorrent: info value is not a map")
+	}
+	info, err := newInfo(infoMap)
+	if err != nil {
+		return nil, fmt.Errorf("error creating Info struct: %w", err)
+	}
+	return &TorrentFile{
+		Announce: announce,
+		Info:     info,
+	}, nil
 }
 
 // newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path
@@ -68,17 +81,34 @@ func newTorrentFileFromFilePath(filePath string) (*TorrentFile, error) {
 		return nil, fmt.Errorf("error decoding torrent file path contents: %w", err)
 	}
 
-	return newTorrentFile(decoded), nil
+	return newTorrentFile(decoded)
 }
 
 // newInfo serves as a constructor for the Info struct
-func newInfo(infoMap map[string]interface{}) *Info {
-	return &Info{
-		length:      infoMap["length"].(int),
-		name:        infoMap["name"].(string),
-		pieceLength: infoMap["piece length"].(int),
-		pieces:      infoMap["pieces"].([]byte),
+func newInfo(infoMap map[string]interface{}) (*Info, error) {
+	length, ok := infoMap["length"].(int)
+	if !ok {
+		return nil, fmt.Errorf("error accessing info length: not an int")
 	}
+	name, ok := infoMap["name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("error accessing info name: not a string")
+	}
+	pieceLength, ok := infoMap["piece length"].(int)
+	if !ok {
+		return nil, fmt.Errorf("error accessing info piece length: not an int")
+	}
+	pieces, ok := infoMap["pieces"].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("error accessing info pieces: not a byte slice")
+	}
+
+	return &Info{
+		length:      length,
+		name:        name,
+		pieceLength: pieceLength,
+		pieces:      pieces,
+	}, nil
 }
 
 // Returns a string representation of the torrent file
