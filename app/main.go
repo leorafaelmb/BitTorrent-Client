@@ -114,7 +114,7 @@ func getBlock(conn net.Conn, index, begin, length uint32) ([]byte, error) {
 	return m.payload[8:], nil
 }
 
-func getPiece(conn net.Conn, pieceLength, pieceIndex uint32) ([]byte, error) {
+func getPiece(conn net.Conn, pieceHash []byte, pieceLength, pieceIndex uint32) ([]byte, error) {
 	piece := make([]byte, 0, pieceLength)
 
 	var blockLen uint32 = 1 << 14
@@ -137,7 +137,22 @@ func getPiece(conn net.Conn, pieceLength, pieceIndex uint32) ([]byte, error) {
 		pieceLength -= blockLen
 	}
 
+	validated := validatePiece(piece, pieceHash)
+	if !validated {
+		return nil, fmt.Errorf("piece hash not validated")
+	}
+
 	return piece, nil
+}
+
+func hashPiece(piece []byte) []byte {
+	hasher := sha1.New()
+	hasher.Write(piece)
+	sha := hasher.Sum(nil)
+	return sha
+}
+func validatePiece(piece, pieceHash []byte) bool {
+	return fmt.Sprintf("%x", hashPiece(piece)) == fmt.Sprintf("%x", pieceHash)
 }
 
 func main() {
@@ -277,12 +292,13 @@ func run() error {
 			return fmt.Errorf("incorrect message id: expected 1 got %d", peerMessage.id)
 		}
 		pieceLength := uint32(t.Info.pieceLength)
+		pieceHash := t.Info.pieces[pieceIndex : 20+pieceIndex]
 
 		if pieceIndex == len(t.Info.pieces)/20-1 {
 			pieceLength = uint32(t.Info.length) - pieceLength*uint32(len(t.Info.pieces)/20-1)
 		}
 
-		piece, err := getPiece(conn, pieceLength, uint32(pieceIndex))
+		piece, err := getPiece(conn, pieceHash, pieceLength, uint32(pieceIndex))
 		if err != nil {
 			return err
 		}
