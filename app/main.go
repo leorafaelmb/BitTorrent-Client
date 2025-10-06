@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -23,6 +24,15 @@ type Peer struct {
 
 	BitField []byte
 }
+
+type Handshake struct {
+	PstrLen  byte
+	Pstr     [19]byte
+	Reserved [8]byte
+	InfoHash [20]byte
+	PeerID   [20]byte
+}
+
 func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.IP.String(), 3*time.Second)
 	if err != nil {
@@ -31,6 +41,68 @@ func (p *Peer) Connect() error {
 	p.Conn = conn
 	return nil
 }
+
+func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
+	c := p.Conn
+
+	message, err := constructHandshakeMessage(t)
+	if err != nil {
+		return nil, fmt.Errorf("error constructing peer handshake message: %w", err)
+	}
+	_, err = c.Write(message)
+	if err != nil {
+		return nil, fmt.Errorf("error writing peer handshake message to connection: %w", err)
+	}
+
+	h, err := readHandshake(p.Conn)
+	if err != nil {
+		return nil, err
+	}
+	//t.Info.getInfoHash()
+
+	copy(p.ID[:], h.PeerID[:])
+
+	return h, nil
+
+}
+
+func readHandshake(conn net.Conn) (*Handshake, error) {
+	buf := make([]byte, 68)
+	_, err := io.ReadFull(conn, buf)
+	if err != nil {
+		return nil, fmt.Errorf("error reading handshake response: %w", err)
+	}
+
+	h := &Handshake{}
+	r := bytes.NewReader(buf)
+
+	h.PstrLen, err = r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.Pstr[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.Reserved[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.InfoHash[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.PeerID[:]); err != nil {
+		return nil, err
+	}
+
+	if h.PstrLen != 68 || string(h.Pstr[:]) != "BitTorrent Protocol" {
+		return nil, err
+	}
+	return h, nil
+}
+
 type PeerMessage struct {
 	length  uint32
 	id      int
