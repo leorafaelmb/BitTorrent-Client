@@ -59,7 +59,11 @@ func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
 	if err != nil {
 		return nil, err
 	}
-	//t.Info.getInfoHash()
+
+	if t.Info.getInfoHash() != h.InfoHash {
+		return nil, fmt.Errorf("handshake info hash does not match torrent info hash")
+
+	}
 
 	copy(p.ID[:], h.PeerID[:])
 
