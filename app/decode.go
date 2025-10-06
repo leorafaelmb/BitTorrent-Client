@@ -110,7 +110,7 @@ func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error)
 
 		key, i, err = decodeString(bencoded, i)
 		if err != nil {
-			return nil, i, fmt.Errorf("error decoding dict key value: %v", err)
+			return nil, i, fmt.Errorf("error decoding dict key value: %w", err)
 		}
 
 		val, i, err = decode(bencoded, i)
