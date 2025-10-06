@@ -12,6 +12,16 @@ import (
 	"strconv"
 )
 
+type Peer struct {
+	IP   net.IP
+	Port uint16
+	ID   [20]byte
+
+	Conn   net.Conn
+	Choked bool
+
+	BitField []byte
+}
 type PeerMessage struct {
 	length  uint32
 	id      int
