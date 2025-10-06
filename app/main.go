@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Peer struct {
@@ -21,6 +22,14 @@ type Peer struct {
 	Choked bool
 
 	BitField []byte
+}
+func (p *Peer) Connect() error {
+	conn, err := net.DialTimeout("tcp", p.IP.String(), 3*time.Second)
+	if err != nil {
+		return err
+	}
+	p.Conn = conn
+	return nil
 }
 type PeerMessage struct {
 	length  uint32
