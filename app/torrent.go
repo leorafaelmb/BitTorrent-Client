@@ -121,13 +121,15 @@ func (t TorrentFile) String() string {
 }
 
 // getInfoHash returns the SHA1 hash of the bencoded info dictionary
-func (i Info) getInfoHash() []byte {
+func (i Info) getInfoHash() [20]byte {
+	infoHash := [20]byte{}
 	hasher := sha1.New()
 	bencodedBytes := i.bencodeInfo()
 	hasher.Write(bencodedBytes)
 
 	sha := hasher.Sum(nil)
-	return sha
+	copy(infoHash[:], sha)
+	return infoHash
 }
 
 // getHexInfoHash returns the info hash in hexadecimal representation

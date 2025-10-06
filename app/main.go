@@ -145,13 +145,13 @@ func readPeerMessage(conn net.Conn) (*PeerMessage, error) {
 
 func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
 	var message []byte
+	infoHash := t.Info.getInfoHash()
 	message = append(message, byte(19))
 	message = append(message, []byte("BitTorrent protocol")...)
 	message = append(message, make([]byte, 8)...)
-	message = append(message, t.Info.getInfoHash()...)
+	message = append(message, infoHash[:]...)
 	peerId := make([]byte, 20)
-	_, err := rand.Read(peerId)
-	if err != nil {
+	if _, err := rand.Read(peerId); err != nil {
 		return nil, fmt.Errorf("error constructing random 20-byte byte slice: %w", err)
 	}
 	message = append(message, peerId...)
