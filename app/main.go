@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
