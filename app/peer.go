@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -18,14 +19,6 @@ type Peer struct {
 	Choked bool
 
 	BitField []byte
-}
-
-type Handshake struct {
-	PstrLen  byte
-	Pstr     [19]byte
-	Reserved [8]byte
-	InfoHash [20]byte
-	PeerID   [20]byte
 }
 
 type PeerMessage struct {
@@ -57,6 +50,14 @@ func (p *Peer) Connect() error {
 	return nil
 }
 
+type Handshake struct {
+	PstrLen  byte
+	Pstr     [19]byte
+	Reserved [8]byte
+	InfoHash [20]byte
+	PeerID   [20]byte
+}
+
 func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
 	c := p.Conn
 	message, err := constructHandshakeMessage(t)
@@ -80,6 +81,58 @@ func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
 
 	return h, nil
 
+}
+
+func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
+	var message []byte
+	infoHash := t.Info.getInfoHash()
+	message = append(message, byte(19))
+	message = append(message, []byte("BitTorrent protocol")...)
+	message = append(message, make([]byte, 8)...)
+	message = append(message, infoHash[:]...)
+	peerId := make([]byte, 20)
+	if _, err := rand.Read(peerId); err != nil {
+		return nil, fmt.Errorf("error constructing random 20-byte byte slice: %w", err)
+	}
+	message = append(message, peerId...)
+	return message, nil
+}
+
+func readHandshake(conn net.Conn) (*Handshake, error) {
+	buf := make([]byte, 68)
+	_, err := io.ReadFull(conn, buf)
+	if err != nil {
+		return nil, fmt.Errorf("error reading handshake response: %w", err)
+	}
+
+	h := &Handshake{}
+	r := bytes.NewReader(buf)
+
+	h.PstrLen, err = r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.Pstr[:]); err != nil {
+		return nil, err
+	}
+	if _, err = io.ReadFull(r, h.Reserved[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.InfoHash[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err = io.ReadFull(r, h.PeerID[:]); err != nil {
+		return nil, err
+	}
+
+	// Validate handshake message
+	if h.PstrLen != 19 || string(h.Pstr[:]) != "BitTorrent protocol" {
+		return nil, fmt.Errorf("invalid handshake")
+	}
+	return h, nil
 }
 
 func (p *Peer) SendMessage(messageID byte, payload []byte) (*PeerMessage, error) {
@@ -176,12 +229,7 @@ func (p *Peer) constructPieceRequest(index, begin, length uint32) []byte {
 }
 
 func (p *Peer) getBlock(index, begin, length uint32) ([]byte, error) {
-	request := p.constructPieceRequest(index, begin, length)
-	if _, err := p.Conn.Write(request); err != nil {
-		return nil, err
-	}
-
-	m, err := p.ReadMessage()
+	m, err := p.SendRequest(index, begin, length)
 	if err != nil {
 		return nil, err
 	}
@@ -212,9 +260,8 @@ func (p *Peer) getPiece(pieceHash []byte, pieceLength, pieceIndex uint32) ([]byt
 		pieceLength -= blockLen
 	}
 
-	validated := validatePiece(piece, pieceHash)
-	if !validated {
-		return nil, fmt.Errorf("piece hash not validated")
+	if !bytes.Equal(hashPiece(piece), pieceHash) {
+		return nil, fmt.Errorf("invalid piece")
 	}
 
 	return piece, nil
