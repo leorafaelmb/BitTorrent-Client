@@ -185,11 +185,11 @@ func readHandshake(conn net.Conn) (*Handshake, error) {
 
 type PeerMessage struct {
 	length  uint32
-	id      int
+	id      byte
 	payload []byte
 }
 
-func newPeerMessage(length uint32, id int, payload []byte) *PeerMessage {
+func newPeerMessage(length uint32, id byte, payload []byte) *PeerMessage {
 	return &PeerMessage{
 		length:  length,
 		id:      id,
@@ -215,7 +215,7 @@ func readPeerMessage(conn net.Conn) (*PeerMessage, error) {
 		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
 	}
 
-	return newPeerMessage(length, int(id[0]), payload), nil
+	return newPeerMessage(length, id[0], payload), nil
 }
 
 func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
