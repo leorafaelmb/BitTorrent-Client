@@ -71,6 +71,67 @@ func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
 
 }
 
+func (p *Peer) SendMessage(messageID byte, payload []byte) (*PeerMessage, error) {
+	length := uint32(len(payload) + 1)
+	message := make([]byte, 4+length)
+
+	binary.BigEndian.PutUint32(message[0:4], length)
+	message[4] = messageID
+	message = append(message, payload...)
+
+	if _, err := p.Conn.Write(message); err != nil {
+		return nil, err
+	}
+
+	response, err := p.ReadMessage()
+
+	return response, err
+
+}
+
+func (p *Peer) ReadMessage() (*PeerMessage, error) {
+	var err error
+	m := &PeerMessage{}
+
+	lenBytes := make([]byte, 4)
+	if _, err = io.ReadFull(p.Conn, lenBytes); err != nil {
+		return nil, fmt.Errorf("error reading length of peer message: %w", err)
+	}
+	length := binary.BigEndian.Uint32(lenBytes)
+	m.length = length
+
+	buf := make([]byte, length)
+	r := bytes.NewReader(buf)
+
+	_, err = io.ReadFull(p.Conn, buf)
+	if err != nil {
+		return nil, fmt.Errorf("error reading data stream into buffer: %w", err)
+	}
+
+	id, err := r.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("error reading message ID of peer message: %w", err)
+	}
+	m.id = id
+
+	payload := make([]byte, length-1)
+	if _, err = io.ReadFull(r, payload); err != nil {
+		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
+	}
+
+	m.payload = payload
+
+	if id < 0 || id > 8 {
+		err = fmt.Errorf("invalid message ID: %w", err)
+	}
+
+	return &PeerMessage{
+		length:  length,
+		id:      id,
+		payload: payload,
+	}, err
+
+}
 func readHandshake(conn net.Conn) (*Handshake, error) {
 	buf := make([]byte, 68)
 	_, err := io.ReadFull(conn, buf)
