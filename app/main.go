@@ -34,6 +34,24 @@ type Handshake struct {
 	PeerID   [20]byte
 }
 
+func (p *Peer) newPeer(hostport string) (*Peer, error) {
+	ipStr, portStr, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return nil, err
+	}
+	ip := net.ParseIP(ipStr)
+	parsedPort, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	port := uint16(parsedPort)
+
+	return &Peer{
+		IP:   ip,
+		Port: port,
+	}, nil
+}
+
 func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.IP.String(), 3*time.Second)
 	if err != nil {
