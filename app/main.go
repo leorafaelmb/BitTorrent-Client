@@ -132,6 +132,20 @@ func (p *Peer) ReadMessage() (*PeerMessage, error) {
 	}, err
 
 }
+
+func (p *Peer) SendInterested() (*PeerMessage, error) {
+	return p.SendMessage(2, nil)
+}
+
+func (p *Peer) SendRequest(index, begin, block uint32) (*PeerMessage, error) {
+	payload := make([]byte, 12)
+	binary.BigEndian.PutUint32(payload[0:4], index)
+	binary.BigEndian.PutUint32(payload[4:8], begin)
+	binary.BigEndian.PutUint32(payload[8:12], block)
+
+	return p.SendMessage(6, payload)
+}
+
 func readHandshake(conn net.Conn) (*Handshake, error) {
 	buf := make([]byte, 68)
 	_, err := io.ReadFull(conn, buf)
