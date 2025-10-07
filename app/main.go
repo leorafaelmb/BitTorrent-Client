@@ -34,7 +34,7 @@ type Handshake struct {
 	PeerID   [20]byte
 }
 
-func (p *Peer) newPeer(hostport string) (*Peer, error) {
+func newPeer(hostport string) (*Peer, error) {
 	ipStr, portStr, err := net.SplitHostPort(hostport)
 	if err != nil {
 		return nil, err
