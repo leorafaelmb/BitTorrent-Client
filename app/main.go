@@ -17,10 +17,6 @@ func hashPiece(piece []byte) []byte {
 	return sha
 }
 
-func downloadFile(conn net.Conn, info Info) {
-
-}
-
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
