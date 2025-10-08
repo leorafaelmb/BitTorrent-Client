@@ -165,6 +165,15 @@ func (i Info) getPieceHashes() []string {
 	return pieceHashes
 }
 
+func (i Info) pieceHashes() [][]byte {
+	pieces := i.pieces
+	var piecesSlice [][]byte
+	for j := 0; j < len(pieces); j += 20 {
+		piecesSlice = append(piecesSlice, pieces[j:j+20])
+	}
+	return piecesSlice
+}
+
 func (i Info) getPieceHashesStr() string {
 	pieceHashes := i.getPieceHashes()
 	pieceHashesStr := ""

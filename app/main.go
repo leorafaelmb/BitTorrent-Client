@@ -153,7 +153,7 @@ func run() error {
 		}
 
 		pieceLength := uint32(t.Info.pieceLength)
-		pieceHash := t.Info.pieces[pieceIndex : 20+pieceIndex]
+		pieceHash := t.Info.pieceHashes()[pieceIndex]
 
 		if pieceIndex == len(t.Info.pieces)/20-1 {
 			pieceLength = uint32(t.Info.length) - pieceLength*uint32(len(t.Info.pieces)/20-1)
@@ -174,6 +174,74 @@ func run() error {
 			return err
 		}
 	case "download":
+		downloadFilePath := os.Args[3]
+		torrentFilePath := os.Args[4]
+
+		t, err := newTorrentFileFromFilePath(torrentFilePath)
+		if err != nil {
+			return err
+		}
+
+		var (
+			trackerURL = t.Announce
+			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
+			peerId     = "leofeopeoluvsanayeli"
+			left       = t.Info.length
+		)
+
+		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
+		trackerResponse, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		peers := trackerResponse.Peers
+
+		p := Peer{
+			AddrPort: &peers[0],
+		}
+
+		if err = p.Connect(); err != nil {
+			return err
+		}
+		defer p.Conn.Close()
+
+		_, err = p.Handshake(*t)
+		if err != nil {
+			return err
+		}
+
+		// bitfield
+		message, err := p.ReadMessage()
+
+		if message.id != 5 {
+			return fmt.Errorf("incorrect message id: expected 5 got %d", message.id)
+		}
+
+		// interested msg
+		message, err = p.SendInterested()
+		if err != nil {
+			return err
+		}
+		// unchoke
+		if message.id != 1 {
+			return fmt.Errorf("incorrect message id: expected 1 got %d", message.id)
+		}
+
+		fileBytes, err := p.DownloadFile(*t)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Create(downloadFilePath)
+		if err != nil {
+			return err
+		}
+
+		defer f.Close()
+		if _, err = f.Write(fileBytes); err != nil {
+			return err
+		}
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
