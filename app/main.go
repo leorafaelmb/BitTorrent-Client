@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
+	"net/netip"
 	"os"
 	"strconv"
 )
@@ -73,9 +73,11 @@ func run() error {
 	case "handshake":
 		filePath := os.Args[2]
 		peerAddress := os.Args[3]
-		p, err := newPeer(peerAddress)
-		if err != nil {
-			return err
+
+		addrPort, err := netip.ParseAddrPort(peerAddress)
+
+		p := Peer{
+			AddrPort: &addrPort,
 		}
 
 		t, err := newTorrentFileFromFilePath(filePath)
@@ -121,11 +123,12 @@ func run() error {
 			return err
 		}
 
-		peers := trackerResponse.getPeers()
-		p, err := newPeer(peers[0])
-		if err != nil {
-			return err
+		peers := trackerResponse.Peers
+
+		p := Peer{
+			AddrPort: &peers[0],
 		}
+
 		if err = p.Connect(); err != nil {
 			return err
 		}
@@ -152,6 +155,7 @@ func run() error {
 		if message.id != 1 {
 			return fmt.Errorf("incorrect message id: expected 1 got %d", message.id)
 		}
+
 		pieceLength := uint32(t.Info.pieceLength)
 		pieceHash := t.Info.pieces[pieceIndex : 20+pieceIndex]
 

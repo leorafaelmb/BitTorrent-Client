@@ -27,20 +27,6 @@ type PeerMessage struct {
 	payload []byte
 }
 
-func newPeer(hostport string) (*Peer, error) {
-	addrPort, err := netip.ParseAddrPort(hostport)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing hostport")
-	}
-
-	if !addrPort.IsValid() {
-		return nil, fmt.Errorf("invalid address")
-	}
-	return &Peer{
-		AddrPort: &addrPort,
-	}, nil
-}
-
 func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.AddrPort.String(), 3*time.Second)
 	if err != nil {
@@ -150,7 +136,6 @@ func (p *Peer) SendMessage(messageID byte, payload []byte) (*PeerMessage, error)
 	response, err := p.ReadMessage()
 
 	return response, err
-
 }
 
 func (p *Peer) ReadMessage() (*PeerMessage, error) {

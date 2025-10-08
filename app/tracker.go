@@ -44,7 +44,7 @@ func (treq TrackerRequest) getFullUrl() string {
 		treq.Left, treq.Compact)
 }
 
-func (treq TrackerRequest) SendRequest() ([]byte, error) {
+func (treq TrackerRequest) SendRequest() (*TrackerResponse, error) {
 	resp, err := http.Get(treq.getFullUrl())
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to tracker server: %w", err)
@@ -54,15 +54,20 @@ func (treq TrackerRequest) SendRequest() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading tracker response body: %w", err)
 	}
-	return body, nil
+
+	trackerResponse, err := newTrackerResponseFromBytes(body)
+	if err != nil {
+		return nil, err
+	}
+	return trackerResponse, nil
 }
 
 type TrackerResponse struct {
 	Interval int
-	Peers    []string
+	Peers    []netip.AddrPort
 }
 
-func newTrackerResponse(interval int, peers []string) *TrackerResponse {
+func newTrackerResponse(interval int, peers []netip.AddrPort) *TrackerResponse {
 	return &TrackerResponse{
 		Interval: interval,
 		Peers:    peers,
@@ -83,30 +88,29 @@ func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
 	var (
 		interval  = d["interval"].(int)
 		peerBytes = d["peers"].([]byte)
-		peers     []string
+		peers     []netip.AddrPort
 	)
 
 	for i := 0; i < len(peerBytes); i += 6 {
+		peerAddr, ok := netip.AddrFromSlice(peerBytes[i : i+4])
+		if !ok {
+			return nil, err
+		}
 		port := binary.BigEndian.Uint16(peerBytes[i+4 : i+6])
-		address := fmt.Sprintf(
-			"%d.%d.%d.%d:%d", peerBytes[i], peerBytes[i+1], peerBytes[i+2], peerBytes[i+3],
-			port)
-		peers = append(peers, address)
+
+		peerAddrPort := netip.AddrPortFrom(peerAddr, port)
+		peers = append(peers, peerAddrPort)
 	}
 
-	return newTrackerResponse(interval, peers), nil
+	return newTrackerResponse(interval, peers), err
 }
 
 func (tres TrackerResponse) PeersString() string {
 	peers := tres.Peers
 	peersString := ""
 	for _, peer := range peers {
-		peersString += fmt.Sprintf("%s\n", peer)
+		peersString += fmt.Sprintf("%s\n", peer.String())
 	}
 
 	return strings.TrimSpace(peersString)
-}
-
-func (tres TrackerResponse) getPeers() []string {
-	return tres.Peers
 }
