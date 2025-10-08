@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -23,7 +24,7 @@ func parseFile(path string) ([]byte, error) {
 
 	fileBytes := make([]byte, fileSize)
 
-	_, err = f.Read(fileBytes)
+	_, err = io.ReadFull(f, fileBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error reading file into byte slice: %w", err)
 	}
