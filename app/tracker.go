@@ -68,13 +68,6 @@ type TrackerResponse struct {
 	Peers    []netip.AddrPort
 }
 
-func newTrackerResponse(interval int, peers []netip.AddrPort) *TrackerResponse {
-	return &TrackerResponse{
-		Interval: interval,
-		Peers:    peers,
-	}
-}
-
 func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
 	decoded, _, err := decode(response, 0)
 	if err != nil {
@@ -103,7 +96,10 @@ func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
 		peers = append(peers, peerAddrPort)
 	}
 
-	return newTrackerResponse(interval, peers), err
+	return &TrackerResponse{
+		Interval: interval,
+		Peers:    peers,
+	}, err
 }
 
 func (tres TrackerResponse) PeersString() string {
