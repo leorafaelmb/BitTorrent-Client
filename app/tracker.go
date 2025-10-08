@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
 // TrackerRequest represents a request made to a tracker server
 type TrackerRequest struct {
 	TrackerURL string
-	InfoHash   string // urlencoded 20-byte long info hash
+	InfoHash   string // urlencoded 20-byte info hash
 	PeerId     string
 	Port       int
 	Uploaded   int
