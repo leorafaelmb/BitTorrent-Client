@@ -18,13 +18,15 @@ type Peer struct {
 	Conn   net.Conn
 	Choked bool
 
-	BitField []byte
+	Bitfield BitField
 }
 
+type BitField []byte
+
 type PeerMessage struct {
-	length  uint32
-	id      byte
-	payload []byte
+	Length  uint32
+	ID      byte
+	Payload []byte
 }
 
 func (p *Peer) Connect() error {
@@ -172,15 +174,33 @@ func (p *Peer) ReadMessage() (*PeerMessage, error) {
 	}
 
 	return &PeerMessage{
-		length:  length,
-		id:      id,
-		payload: payload,
+		Length:  length,
+		ID:      id,
+		Payload: payload,
 	}, err
 
 }
 
+func (p *Peer) ReadBitfield() (*PeerMessage, error) {
+	msg, err := p.ReadMessage()
+	if err != nil {
+		return msg, fmt.Errorf("failed to read bitfield: %w", err)
+	}
+	if msg.ID != 5 {
+		return msg, fmt.Errorf("expected bitfield (5), got %d", msg.ID)
+	}
+
+	p.Bitfield = msg.Payload
+
+	return msg, nil
+}
+
 func (p *Peer) SendInterested() (*PeerMessage, error) {
 	return p.SendMessage(2, nil)
+}
+
+func (p *Peer) SendHave(index string) (*PeerMessage, error) {
+	return p.SendMessage(4, nil)
 }
 
 func (p *Peer) SendRequest(index, begin, block uint32) (*PeerMessage, error) {
@@ -210,63 +230,115 @@ func (p *Peer) constructPieceRequest(index, begin, length uint32) []byte {
 
 }
 
-func (p *Peer) getBlock(index, begin, length uint32) ([]byte, error) {
-	m, err := p.SendRequest(index, begin, length)
-	if err != nil {
-		return nil, err
+const MaxPipelineRequests = 5
+const BlockSize uint32 = 1 << 14
+
+type BlockRequest struct {
+	Index  uint32
+	Begin  uint32
+	Length uint32
+}
+
+func (p *Peer) sendRequestOnly(index, begin, length uint32) error {
+	request := p.constructPieceRequest(index, begin, length)
+
+	if _, err := p.Conn.Write(request); err != nil {
+		return fmt.Errorf("error writing request to connection: %w", err)
 	}
 
-	return m.payload[8:], nil
+	return nil
+}
+
+func (p *Peer) getBlocks(requests []BlockRequest) ([][]byte, error) {
+	numBlocks := len(requests)
+	blocks := make([][]byte, numBlocks)
+
+	requested := 0
+	received := 0
+
+	for received < numBlocks {
+		for requested < numBlocks && requested-received < MaxPipelineRequests {
+			req := requests[requested]
+
+			if err := p.sendRequestOnly(req.Index, req.Begin, req.Length); err != nil {
+				return nil, fmt.Errorf("error sending request for block %d: %w", requested, err)
+			}
+			requested++
+		}
+		msg, err := p.ReadMessage()
+		if err != nil {
+			return nil, fmt.Errorf("error reading message for block %d: %w", received, err)
+
+		}
+		if msg.ID != 7 {
+			return nil, fmt.Errorf("expected piece message (7), got %d", msg.ID)
+		}
+
+		// Extract block data (skip index and begin offset, which are first 8 bytes)
+		if len(msg.Payload) < 8 {
+			return nil, fmt.Errorf("piece message payload too short: %d bytes", len(msg.Payload))
+		}
+
+		blockData := msg.Payload[8:]
+		blocks[received] = blockData
+		received++
+	}
+	return blocks, nil
 }
 
 func (p *Peer) getPiece(pieceHash []byte, pieceLength, pieceIndex uint32) ([]byte, error) {
 	piece := make([]byte, 0, pieceLength)
 
-	var blockLen uint32 = 1 << 14
+	var requests []BlockRequest
 	var begin uint32 = 0
+	remaining := pieceLength
 
-	for pieceLength > 0 {
-		if pieceLength < 1<<14 {
-			blockLen = pieceLength
+	for remaining > 0 {
+		blockLen := BlockSize
+		if remaining < BlockSize {
+			blockLen = remaining
 		}
 
-		block, err := p.getBlock(pieceIndex, begin, blockLen)
-		if err != nil {
-			return nil,
-				fmt.Errorf("error getting piece %d at byte offset %d with length %d: %w\n",
-					pieceIndex, begin, blockLen, err)
-		}
+		requests = append(requests, BlockRequest{
+			Index:  pieceIndex,
+			Begin:  begin,
+			Length: blockLen,
+		})
 
-		piece = append(piece, block...)
 		begin += blockLen
-		pieceLength -= blockLen
+		remaining -= blockLen
+	}
+
+	blocks, err := p.getBlocks(requests)
+	if err != nil {
+		return nil, fmt.Errorf("error downloading blocks: %w", err)
+	}
+
+	for _, block := range blocks {
+		piece = append(piece, block...)
 	}
 
 	if !bytes.Equal(hashPiece(piece), pieceHash) {
-		return nil, fmt.Errorf("invalid piece")
+		return nil, fmt.Errorf("invalid piece hash for piece %d", pieceIndex)
 	}
 
 	return piece, nil
 }
 
-func (p *Peer) DownloadFile(t TorrentFile) ([]byte, error) {
-	pieceHashes := t.Info.pieceHashes()
-	numPieces := len(pieceHashes)
-	pieceLength := uint32(t.Info.pieceLength)
-	fileBytes := make([]byte, 0, t.Info.length)
-
-	for i := 0; i < numPieces; i++ {
-		if i == len(t.Info.pieces)/20-1 {
-			pieceLength = uint32(t.Info.length) - pieceLength*uint32(len(t.Info.pieces)/20-1)
-		}
-		pieceHash := pieceHashes[i]
-		piece, err := p.getPiece(pieceHash, pieceLength, uint32(i))
-		if err != nil {
-			return nil, err
-		}
-		fileBytes = append(fileBytes, piece...)
+func (p *Peer) ParseBitfield(msg *PeerMessage) error {
+	if msg.ID != 5 {
+		return fmt.Errorf("expected bitfield message (id 5), got id %d", msg.ID)
 	}
+	p.Bitfield = msg.Payload
+	return nil
+}
 
-	return fileBytes, nil
-
+func (bf BitField) HasPiece(index int) bool {
+	byteIndex := index / 8
+	offset := index % 8
+	if byteIndex < 0 || byteIndex >= len(bf) {
+		return false
+	}
+	// Check if the bit is set (bits are ordered from most significant to least)
+	return bf[byteIndex]>>(7-offset)&1 != 0
 }

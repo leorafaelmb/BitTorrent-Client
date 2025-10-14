@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 // parseFile parses a torrent file and returns its bencoded data
@@ -43,6 +44,13 @@ type Info struct {
 	name        string
 	pieceLength int
 	pieces      []byte
+
+	files []FileInfo
+}
+
+type FileInfo struct {
+	Length int
+	Path   []string
 }
 
 // newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of
@@ -70,14 +78,14 @@ func newTorrentFile(dict interface{}) (*TorrentFile, error) {
 	}, nil
 }
 
-// newTorrentFileFromFilePath serves as a constructor for the TorrentFile struct given a file path
-// to a torrent file
-func newTorrentFileFromFilePath(filePath string) (*TorrentFile, error) {
+// DeserializeTorrent serves as a constructor for the TorrentFile struct given a file path
+// to a torrent
+func DeserializeTorrent(filePath string) (*TorrentFile, error) {
 	contents, err := parseFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing torrent file: %w", err)
 	}
-	decoded, _, err := decode(contents, 0)
+	decoded, err := Decode(contents)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding torrent file path contents: %w", err)
 	}
@@ -112,7 +120,7 @@ func newInfo(infoMap map[string]interface{}) (*Info, error) {
 	}, nil
 }
 
-// Returns a string representation of the torrent file
+// String returns a string representation of the torrent file
 func (t TorrentFile) String() string {
 	return fmt.Sprintf(
 		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
@@ -125,7 +133,7 @@ func (t TorrentFile) String() string {
 func (i Info) getInfoHash() [20]byte {
 	infoHash := [20]byte{}
 	hasher := sha1.New()
-	bencodedBytes := i.bencodeInfo()
+	bencodedBytes := i.serializeInfo()
 	hasher.Write(bencodedBytes)
 
 	sha := hasher.Sum(nil)
@@ -138,9 +146,8 @@ func (i Info) getHexInfoHash() string {
 	return fmt.Sprintf("%x", i.getInfoHash())
 }
 
-// bencodeInfo takes all the information in the information dictionary and bencodes it in
-// lexicographical order
-func (i Info) bencodeInfo() []byte {
+// serializeInfo bencodes the Info struct
+func (i Info) serializeInfo() []byte {
 	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.length))
 	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.name), i.name))
 	pLB := []byte(fmt.Sprintf("12:piece lengthi%de", i.pieceLength))
@@ -190,4 +197,130 @@ func urlEncodeInfoHash(infoHash string) string {
 		urlEncodedHash += fmt.Sprintf("%%%s%s", string(infoHash[i]), string(infoHash[i+1]))
 	}
 	return urlEncodedHash
+}
+
+type PieceWork struct {
+	Index  int
+	Hash   []byte
+	Length uint32
+}
+
+type PieceResult struct {
+	Index   int
+	Payload []byte
+}
+
+func (t TorrentFile) DownloadFile(peers []Peer, maxWorkers int) ([]byte, error) {
+	var (
+		pieceHashes = t.Info.pieceHashes()
+		numPieces   = len(pieceHashes)
+		pieceLength = uint32(t.Info.pieceLength)
+	)
+	workQueue := make(chan *PieceWork, numPieces)
+	results := make(chan *PieceResult)
+
+	for i := 0; i < numPieces; i++ {
+		length := pieceLength
+		// Last piece might be shorter
+		if i == numPieces-1 {
+			length = uint32(t.Info.length) - pieceLength*uint32(numPieces-1)
+		}
+		workQueue <- &PieceWork{
+			Index:  i,
+			Hash:   pieceHashes[i],
+			Length: length,
+		}
+	}
+	close(workQueue)
+
+	var wg sync.WaitGroup
+	numWorkers := min(maxWorkers, len(peers))
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(peer Peer) {
+			defer wg.Done()
+			if err := t.worker(&peer, workQueue, results); err != nil {
+				fmt.Printf("Worker error: %v\n", err)
+			}
+		}(peers[i])
+	}
+
+	// Close results channel when workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	pieces := make([][]byte, numPieces)
+	for result := range results {
+		pieces[result.Index] = result.Payload
+	}
+
+	// Assemble file byte slice
+	fileBytes := make([]byte, 0, t.Info.length)
+	for _, piece := range pieces {
+		fileBytes = append(fileBytes, piece...)
+	}
+
+	return fileBytes, nil
+}
+
+func (t TorrentFile) worker(peer *Peer, workQueue chan *PieceWork, results chan *PieceResult) error {
+	// Connect to peer
+	if err := peer.Connect(); err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer peer.Conn.Close()
+
+	// Handshake
+	if _, err := peer.Handshake(t); err != nil {
+		return fmt.Errorf("handshake failed: %w", err)
+	}
+
+	// Read bitfield
+	msg, err := peer.ReadBitfield()
+	if err != nil {
+		return err
+	}
+
+	// Send interested
+	msg, err = peer.SendInterested()
+	if err != nil {
+		return fmt.Errorf("failed to send interested: %w", err)
+	}
+
+	// Receive unchoke
+	if msg.ID != 1 {
+		return fmt.Errorf("expected unchoke (1), got %d", msg.ID)
+	}
+
+	for work := range workQueue {
+		// Check if peer has the piece
+		if !peer.Bitfield.HasPiece(work.Index) {
+			// Put work back in queue for another peer
+			go func(w *PieceWork) {
+				workQueue <- w
+			}(work)
+			continue
+		}
+
+		piece, err := peer.getPiece(work.Hash, work.Length, uint32(work.Index))
+		if err != nil {
+			fmt.Printf("Peer %s failed to download piece %d: %v\n",
+				peer.AddrPort.String(), work.Index, err)
+			// Put work back in queue to retry
+			workQueue <- work
+			continue
+		}
+
+		results <- &PieceResult{
+			Index:   work.Index,
+			Payload: piece,
+		}
+
+		fmt.Printf("Downloaded piece %d/%d\n", work.Index+1, len(t.Info.pieces)/20)
+	}
+
+	return nil
 }

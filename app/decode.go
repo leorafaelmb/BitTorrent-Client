@@ -7,7 +7,12 @@ import (
 	"unicode/utf8"
 )
 
-func decode(bencoded []byte, index int) (interface{}, int, error) {
+func Decode(bencoded []byte) (interface{}, error) {
+	result, _, err := decodeBencode(bencoded, 0)
+	return result, err
+}
+
+func decodeBencode(bencoded []byte, index int) (interface{}, int, error) {
 	identifier := rune(bencoded[index])
 	if unicode.IsDigit(identifier) {
 		decodedString, i, err := decodeString(bencoded, index)
@@ -80,7 +85,7 @@ func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 			break
 		}
 
-		val, i, err = decode(bencoded, i)
+		val, i, err = decodeBencode(bencoded, i)
 		if err != nil {
 			return nil, -1, fmt.Errorf("error decoding bencoded value: %v", err)
 		}
@@ -113,7 +118,7 @@ func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error)
 			return nil, i, fmt.Errorf("error decoding dict key value: %w", err)
 		}
 
-		val, i, err = decode(bencoded, i)
+		val, i, err = decodeBencode(bencoded, i)
 		if err != nil {
 			return nil, i, err
 		}

@@ -69,7 +69,7 @@ type TrackerResponse struct {
 }
 
 func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
-	decoded, _, err := decode(response, 0)
+	decoded, err := Decode(response)
 	if err != nil {
 		fmt.Println("error decoding tracker response body: ", err)
 		return nil, err

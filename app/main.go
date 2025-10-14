@@ -30,7 +30,7 @@ func run() error {
 	case "decode":
 		bencodedValue := os.Args[2]
 
-		decoded, _, err := decode([]byte(bencodedValue), 0)
+		decoded, err := Decode([]byte(bencodedValue))
 		if err != nil {
 			return err
 		}
@@ -39,14 +39,14 @@ func run() error {
 
 	case "info":
 		filePath := os.Args[2]
-		t, err := newTorrentFileFromFilePath(filePath)
+		t, err := DeserializeTorrent(filePath)
 		if err != nil {
 			return err
 		}
 		fmt.Println(t)
 	case "peers":
 		filePath := os.Args[2]
-		t, err := newTorrentFileFromFilePath(filePath)
+		t, err := DeserializeTorrent(filePath)
 		if err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func run() error {
 			AddrPort: &addrPort,
 		}
 
-		t, err := newTorrentFileFromFilePath(filePath)
+		t, err := DeserializeTorrent(filePath)
 		if err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func run() error {
 			return err
 		}
 
-		t, err := newTorrentFileFromFilePath(torrentFilePath)
+		t, err := DeserializeTorrent(torrentFilePath)
 		if err != nil {
 			return err
 		}
@@ -138,8 +138,8 @@ func run() error {
 		// bitfield
 		message, err := p.ReadMessage()
 
-		if message.id != 5 {
-			return fmt.Errorf("incorrect message id: expected 5 got %d", message.id)
+		if message.ID != 5 {
+			return fmt.Errorf("incorrect message id: expected 5 got %d", message.ID)
 		}
 
 		// interested msg
@@ -148,8 +148,8 @@ func run() error {
 			return err
 		}
 		// unchoke
-		if message.id != 1 {
-			return fmt.Errorf("incorrect message id: expected 1 got %d", message.id)
+		if message.ID != 1 {
+			return fmt.Errorf("incorrect message id: expected 1 got %d", message.ID)
 		}
 
 		pieceLength := uint32(t.Info.pieceLength)
@@ -177,7 +177,7 @@ func run() error {
 		downloadFilePath := os.Args[3]
 		torrentFilePath := os.Args[4]
 
-		t, err := newTorrentFileFromFilePath(torrentFilePath)
+		t, err := DeserializeTorrent(torrentFilePath)
 		if err != nil {
 			return err
 		}
@@ -197,38 +197,14 @@ func run() error {
 
 		peers := trackerResponse.Peers
 
-		p := Peer{
-			AddrPort: &peers[0],
+		// Create Peer objects from addresses
+		peerList := make([]Peer, len(peers))
+		for i, addr := range peers {
+			peerList[i] = Peer{AddrPort: &addr}
 		}
 
-		if err = p.Connect(); err != nil {
-			return err
-		}
-		defer p.Conn.Close()
-
-		_, err = p.Handshake(*t)
-		if err != nil {
-			return err
-		}
-
-		// bitfield
-		message, err := p.ReadMessage()
-
-		if message.id != 5 {
-			return fmt.Errorf("incorrect message id: expected 5 got %d", message.id)
-		}
-
-		// interested msg
-		message, err = p.SendInterested()
-		if err != nil {
-			return err
-		}
-		// unchoke
-		if message.id != 1 {
-			return fmt.Errorf("incorrect message id: expected 1 got %d", message.id)
-		}
-
-		fileBytes, err := p.DownloadFile(*t)
+		// Download using 5 concurrent workers
+		fileBytes, err := t.DownloadFile(peerList, 5)
 		if err != nil {
 			return err
 		}
@@ -237,8 +213,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
-
 		defer f.Close()
+
 		if _, err = f.Write(fileBytes); err != nil {
 			return err
 		}
