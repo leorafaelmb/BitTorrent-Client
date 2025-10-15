@@ -46,9 +46,9 @@ type Handshake struct {
 	PeerID   [20]byte
 }
 
-func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
+func (p *Peer) Handshake(t TorrentFile, ext bool) (*Handshake, error) {
 	c := p.Conn
-	message, err := constructHandshakeMessage(t)
+	message, err := constructHandshakeMessage(t, ext)
 	if err != nil {
 		return nil, fmt.Errorf("error constructing peer handshake message: %w", err)
 	}
@@ -60,22 +60,21 @@ func (p *Peer) Handshake(t TorrentFile) (*Handshake, error) {
 	if err != nil {
 		return nil, err
 	}
-	if t.Info.getInfoHash() != h.InfoHash {
-		return nil, fmt.Errorf("handshake info hash does not match torrent info hash: %w", err)
+	if t.Info.InfoHash != h.InfoHash {
+		return h, fmt.Errorf("handshake info hash does not match torrent info hash: %w", err)
 
 	}
 
 	copy(p.ID[:], h.PeerID[:])
 
 	return h, nil
-
 }
 
-func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
+func constructHandshakeMessage(t TorrentFile, ext bool) ([]byte, error) {
 	message := make([]byte, 68)
 
 	peerID := make([]byte, 20)
-	infoHash := t.Info.getInfoHash()
+	infoHash := t.Info.InfoHash
 	if _, err := rand.Read(peerID); err != nil {
 		return nil, fmt.Errorf("error constructing random 20-byte byte slice: %w", err)
 	}
@@ -85,6 +84,10 @@ func constructHandshakeMessage(t TorrentFile) ([]byte, error) {
 	copy(message[20:28], make([]byte, 8))
 	copy(message[28:48], infoHash[:])
 	copy(message[48:68], peerID)
+
+	if ext {
+		message[25] = 16
+	}
 
 	return message, nil
 }

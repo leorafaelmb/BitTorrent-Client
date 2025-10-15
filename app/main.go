@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/netip"
-	"net/url"
 	"os"
 	"strconv"
-	"strings"
 )
 
 func hashPiece(piece []byte) []byte {
@@ -57,7 +55,7 @@ func run() error {
 			trackerURL = t.Announce
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
-			left       = t.Info.length
+			left       = t.Info.Length
 		)
 
 		r := newTrackerRequest(trackerURL, infoHash, peerId, left)
@@ -88,7 +86,7 @@ func run() error {
 		}
 		defer p.Conn.Close()
 
-		response, err := p.Handshake(*t)
+		response, err := p.Handshake(*t, false)
 		if err != nil {
 			return err
 		}
@@ -112,7 +110,7 @@ func run() error {
 			trackerURL = t.Announce
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
-			left       = t.Info.length
+			left       = t.Info.Length
 		)
 
 		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
@@ -132,7 +130,7 @@ func run() error {
 		}
 		defer p.Conn.Close()
 
-		_, err = p.Handshake(*t)
+		_, err = p.Handshake(*t, false)
 		if err != nil {
 			return err
 		}
@@ -154,11 +152,11 @@ func run() error {
 			return fmt.Errorf("incorrect message id: expected 1 got %d", message.ID)
 		}
 
-		pieceLength := uint32(t.Info.pieceLength)
+		pieceLength := uint32(t.Info.PieceLength)
 		pieceHash := t.Info.pieceHashes()[pieceIndex]
 
-		if pieceIndex == len(t.Info.pieces)/20-1 {
-			pieceLength = uint32(t.Info.length) - pieceLength*uint32(len(t.Info.pieces)/20-1)
+		if pieceIndex == len(t.Info.Pieces)/20-1 {
+			pieceLength = uint32(t.Info.Length) - pieceLength*uint32(len(t.Info.Pieces)/20-1)
 		}
 
 		piece, err := p.getPiece(pieceHash, pieceLength, uint32(pieceIndex))
@@ -188,7 +186,7 @@ func run() error {
 			trackerURL = t.Announce
 			infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
 			peerId     = "leofeopeoluvsanayeli"
-			left       = t.Info.length
+			left       = t.Info.Length
 		)
 
 		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
@@ -221,15 +219,43 @@ func run() error {
 			return err
 		}
 	case "magnet_parse":
-		magnetUri, err := url.Parse(os.Args[2])
+		magnet, err := DeserializeMagnet(os.Args[2])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
-		fmt.Println("Tracker URL:", magnetUri.Query()["tr"][0])
-		fmt.Println("Info Hash:", strings.ReplaceAll(magnetUri.Query()["xt"][0], "urn:btih:", ""))
+		fmt.Println("Tracker URL:", magnet.TrackerURL)
+		fmt.Println("Info Hash:", magnet.HexInfoHash)
+	case "magnet_handshake":
+		magnetUrl := os.Args[2]
 
+		magnet, err := DeserializeMagnet(magnetUrl)
+		t := TorrentFile{
+			Announce: magnet.TrackerURL,
+			Info: &Info{
+				Length:      999,
+				PieceLength: 0,
+				InfoHash:    magnet.InfoHash,
+			}}
+		treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash),
+			"leofeopeoluvsanayeli", 999)
+		tres, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		p := Peer{AddrPort: &tres.Peers[0]}
+		err = p.Connect()
+		if err != nil {
+			return err
+		}
+		defer p.Conn.Close()
+
+		h, err := p.Handshake(t, true)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Peer ID: %x\n", h.PeerID)
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}

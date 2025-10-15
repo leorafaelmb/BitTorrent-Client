@@ -40,17 +40,11 @@ type TorrentFile struct {
 
 // Info represents the info dictionary and its contents in a torrent file
 type Info struct {
-	length      int
-	name        string
-	pieceLength int
-	pieces      []byte
-
-	files []FileInfo
-}
-
-type FileInfo struct {
-	Length int
-	Path   []string
+	Length      int
+	Name        string
+	PieceLength int
+	Pieces      []byte
+	InfoHash    [20]byte
 }
 
 // newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of
@@ -72,6 +66,8 @@ func newTorrentFile(dict interface{}) (*TorrentFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error creating Info struct: %w", err)
 	}
+
+	info.InfoHash = info.getInfoHash()
 	return &TorrentFile{
 		Announce: announce,
 		Info:     info,
@@ -113,10 +109,10 @@ func newInfo(infoMap map[string]interface{}) (*Info, error) {
 	}
 
 	return &Info{
-		length:      length,
-		name:        name,
-		pieceLength: pieceLength,
-		pieces:      pieces,
+		Length:      length,
+		Name:        name,
+		PieceLength: pieceLength,
+		Pieces:      pieces,
 	}, nil
 }
 
@@ -124,7 +120,7 @@ func newInfo(infoMap map[string]interface{}) (*Info, error) {
 func (t TorrentFile) String() string {
 	return fmt.Sprintf(
 		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
-		t.Announce, t.Info.length, t.Info.getInfoHash(), t.Info.pieceLength,
+		t.Announce, t.Info.Length, t.Info.getInfoHash(), t.Info.PieceLength,
 		t.Info.getPieceHashesStr(),
 	)
 }
@@ -148,11 +144,11 @@ func (i Info) getHexInfoHash() string {
 
 // serializeInfo bencodes the Info struct
 func (i Info) serializeInfo() []byte {
-	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.length))
-	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.name), i.name))
-	pLB := []byte(fmt.Sprintf("12:piece lengthi%de", i.pieceLength))
-	pieces := []byte(fmt.Sprintf("6:pieces%d:", len(i.pieces)))
-	pieces = append(pieces, i.pieces...)
+	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.Length))
+	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.Name), i.Name))
+	pLB := []byte(fmt.Sprintf("12:piece lengthi%de", i.PieceLength))
+	pieces := []byte(fmt.Sprintf("6:pieces%d:", len(i.Pieces)))
+	pieces = append(pieces, i.Pieces...)
 
 	infoB := []byte{'d'}
 	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...),
@@ -163,7 +159,7 @@ func (i Info) serializeInfo() []byte {
 
 func (i Info) getPieceHashes() []string {
 	var pieceHashes []string
-	pieces := i.pieces
+	pieces := i.Pieces
 	for j := 0; j < len(pieces); j += 20 {
 		piece := pieces[j : j+20]
 		pieceHashes = append(pieceHashes, fmt.Sprintf("%x", piece))
@@ -173,7 +169,7 @@ func (i Info) getPieceHashes() []string {
 }
 
 func (i Info) pieceHashes() [][]byte {
-	pieces := i.pieces
+	pieces := i.Pieces
 	var piecesSlice [][]byte
 	for j := 0; j < len(pieces); j += 20 {
 		piecesSlice = append(piecesSlice, pieces[j:j+20])
@@ -214,7 +210,7 @@ func (t TorrentFile) DownloadFile(peers []Peer, maxWorkers int) ([]byte, error) 
 	var (
 		pieceHashes = t.Info.pieceHashes()
 		numPieces   = len(pieceHashes)
-		pieceLength = uint32(t.Info.pieceLength)
+		pieceLength = uint32(t.Info.PieceLength)
 	)
 	workQueue := make(chan *PieceWork, numPieces)
 	results := make(chan *PieceResult)
@@ -223,7 +219,7 @@ func (t TorrentFile) DownloadFile(peers []Peer, maxWorkers int) ([]byte, error) 
 		length := pieceLength
 		// Last piece might be shorter
 		if i == numPieces-1 {
-			length = uint32(t.Info.length) - pieceLength*uint32(numPieces-1)
+			length = uint32(t.Info.Length) - pieceLength*uint32(numPieces-1)
 		}
 		workQueue <- &PieceWork{
 			Index:  i,
@@ -258,7 +254,7 @@ func (t TorrentFile) DownloadFile(peers []Peer, maxWorkers int) ([]byte, error) 
 	}
 
 	// Assemble file byte slice
-	fileBytes := make([]byte, 0, t.Info.length)
+	fileBytes := make([]byte, 0, t.Info.Length)
 	for _, piece := range pieces {
 		fileBytes = append(fileBytes, piece...)
 	}
@@ -274,7 +270,7 @@ func (t TorrentFile) worker(peer *Peer, workQueue chan *PieceWork, results chan 
 	defer peer.Conn.Close()
 
 	// Handshake
-	if _, err := peer.Handshake(t); err != nil {
+	if _, err := peer.Handshake(t, false); err != nil {
 		return fmt.Errorf("handshake failed: %w", err)
 	}
 
@@ -319,7 +315,7 @@ func (t TorrentFile) worker(peer *Peer, workQueue chan *PieceWork, results chan 
 			Payload: piece,
 		}
 
-		fmt.Printf("Downloaded piece %d/%d\n", work.Index+1, len(t.Info.pieces)/20)
+		fmt.Printf("Downloaded piece %d/%d\n", work.Index+1, len(t.Info.Pieces)/20)
 	}
 
 	return nil

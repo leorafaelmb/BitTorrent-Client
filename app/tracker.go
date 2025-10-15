@@ -55,7 +55,6 @@ func (treq TrackerRequest) SendRequest() (*TrackerResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading tracker response body: %w", err)
 	}
-
 	trackerResponse, err := newTrackerResponseFromBytes(body)
 	if err != nil {
 		return nil, err
@@ -78,12 +77,17 @@ func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
 	if !ok {
 		return nil, fmt.Errorf("decoded did not return map[string]interface{}")
 	}
+	interval, ok := d["interval"].(int)
+	if !ok {
+		return nil, fmt.Errorf("error reading interval from tracker response")
+	}
 
-	var (
-		interval  = d["interval"].(int)
-		peerBytes = d["peers"].([]byte)
-		peers     []netip.AddrPort
-	)
+	peerBytes, ok := d["peers"].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("error reading peers from tracker response")
+	}
+
+	var peers []netip.AddrPort
 
 	for i := 0; i < len(peerBytes); i += 6 {
 		peerAddr, ok := netip.AddrFromSlice(peerBytes[i : i+4])
