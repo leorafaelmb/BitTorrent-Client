@@ -230,13 +230,13 @@ func run() error {
 		magnetUrl := os.Args[2]
 
 		magnet, err := DeserializeMagnet(magnetUrl)
-		t := TorrentFile{
-			Announce: magnet.TrackerURL,
-			Info: &Info{
-				Length:      999,
-				PieceLength: 0,
-				InfoHash:    magnet.InfoHash,
-			}}
+		//t := TorrentFile{
+		//	Announce: magnet.TrackerURL,
+		//	Info: &Info{
+		//		Length:      999,
+		//		PieceLength: 0,
+		//		InfoHash:    magnet.InfoHash,
+		//	}}
 		treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash),
 			"leofeopeoluvsanayeli", 999)
 		tres, err := treq.SendRequest()
@@ -250,12 +250,21 @@ func run() error {
 			return err
 		}
 		defer p.Conn.Close()
-
-		h, err := p.Handshake(t, true)
+		_, err = p.MagnetHandshake(magnet.InfoHash)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Peer ID: %x\n", h.PeerID)
+		_, err = p.ReadBitfield()
+		if err != nil {
+			return err
+		}
+
+		_, err = p.ExtensionHandshake()
+		if err != nil {
+			return fmt.Errorf("extension handshake failed: %w", err)
+		}
+
+		fmt.Printf("Peer ID: %x\n", p.ID)
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}

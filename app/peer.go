@@ -172,10 +172,6 @@ func (p *Peer) ReadMessage() (*PeerMessage, error) {
 		return nil, fmt.Errorf("error reading payload of peer message: %w", err)
 	}
 
-	if id < 0 || id > 8 {
-		err = fmt.Errorf("invalid message ID: %w", err)
-	}
-
 	return &PeerMessage{
 		Length:  length,
 		ID:      id,
