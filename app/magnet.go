@@ -38,8 +38,7 @@ func DeserializeMagnet(uri string) (*MagnetLink, error) {
 }
 
 func (p *Peer) ExtensionHandshake() (*ExtensionHandshakeResponse, error) {
-	payload := []byte{0}
-	payload = append(payload, []byte("d1:md11:ut_metadatai1eee")...)
+	payload := append([]byte{0}, []byte("d1:md11:ut_metadatai1eee")...)
 
 	// Message ID 20 for extension protocol
 	msg, err := p.SendMessage(20, payload)
@@ -140,4 +139,71 @@ func constructMagnetHandshakeMessage(infoHash [20]byte) []byte {
 	copy(message[48:68], "leofeopeoluvsanayeli")
 
 	return message
+}
+
+// RequestMetadataPiece requests a piece of the metadata
+func (p *Peer) RequestMetadataPiece(utMetadataID byte, piece int) (*MetadataPiece, error) {
+	// Build request message
+	request := fmt.Sprintf("d8:msg_typei0e5:piecei%dee", piece)
+
+	payload := append([]byte{utMetadataID}, []byte(request)...)
+
+	msg, err := p.SendMessage(20, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send metadata request: %w", err)
+	}
+
+	if msg.ID != 20 {
+		return nil, fmt.Errorf("expected extension message (20), got %d", msg.ID)
+	}
+
+	return parseMetadataPiece(msg.Payload)
+}
+
+type MetadataPiece struct {
+	Piece     int
+	TotalSize int
+	Data      []byte
+}
+
+func parseMetadataPiece(payload []byte) (*MetadataPiece, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("metadata response too short")
+	}
+
+	// First byte is extension message ID, skip it
+	bencodedPart := payload[1:]
+	decoded, dictEnd, err := decodeBencode(payload, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode metadata response: %w", err)
+	}
+	dict, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("metadata response not a dictionary")
+	}
+
+	// Check msg_type (should be 1 for data)
+	msgType, ok := dict["msg_type"].(int)
+	if !ok || msgType != 1 {
+		return nil, fmt.Errorf("invalid msg_type in metadata response")
+	}
+
+	piece, ok := dict["piece"].(int)
+	if !ok {
+		return nil, fmt.Errorf("no piece index in metadata response")
+	}
+
+	totalSize, ok := dict["total_size"].(int)
+	if !ok {
+		return nil, fmt.Errorf("no total_size in metadata response")
+	}
+
+	// Extract the actual metadata data (everything after the bencoded dict)
+	data := bencodedPart[dictEnd:]
+
+	return &MetadataPiece{
+		Piece:     piece,
+		TotalSize: totalSize,
+		Data:      data,
+	}, nil
 }

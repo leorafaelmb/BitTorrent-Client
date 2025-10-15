@@ -230,13 +230,6 @@ func run() error {
 		magnetUrl := os.Args[2]
 
 		magnet, err := DeserializeMagnet(magnetUrl)
-		//t := TorrentFile{
-		//	Announce: magnet.TrackerURL,
-		//	Info: &Info{
-		//		Length:      999,
-		//		PieceLength: 0,
-		//		InfoHash:    magnet.InfoHash,
-		//	}}
 		treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash),
 			"leofeopeoluvsanayeli", 999)
 		tres, err := treq.SendRequest()
@@ -266,6 +259,41 @@ func run() error {
 
 		fmt.Printf("Peer ID: %x\n", p.ID)
 		fmt.Printf("Peer Metadata Extension ID: %d\n", eh.UtMetadataID)
+	case "magnet_info":
+		magnetUrl := os.Args[2]
+
+		magnet, err := DeserializeMagnet(magnetUrl)
+		treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash),
+			"leofeopeoluvsanayeli", 999)
+		tres, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		p := Peer{AddrPort: &tres.Peers[0]}
+		err = p.Connect()
+		if err != nil {
+			return err
+		}
+		defer p.Conn.Close()
+		_, err = p.MagnetHandshake(magnet.InfoHash)
+		if err != nil {
+			return err
+		}
+		_, err = p.ReadBitfield()
+		if err != nil {
+			return err
+		}
+
+		eh, err := p.ExtensionHandshake()
+		if err != nil {
+			return fmt.Errorf("extension handshake failed: %w", err)
+		}
+
+		_, err = p.RequestMetadataPiece(byte(eh.UtMetadataID), 0)
+		if err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}
