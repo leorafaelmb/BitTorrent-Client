@@ -259,12 +259,13 @@ func run() error {
 			return err
 		}
 
-		_, err = p.ExtensionHandshake()
+		eh, err := p.ExtensionHandshake()
 		if err != nil {
 			return fmt.Errorf("extension handshake failed: %w", err)
 		}
 
 		fmt.Printf("Peer ID: %x\n", p.ID)
+		fmt.Printf("Peer Metadata Extension ID: %d\n", eh.UtMetadataID)
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}
