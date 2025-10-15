@@ -9,8 +9,8 @@ import (
 	"sync"
 )
 
-// parseFile parses a torrent file and returns its bencoded data
-func parseFile(path string) ([]byte, error) {
+// parseTorrent parses a torrent file and returns its bencoded data
+func parseTorrent(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("error opening torrent file: %w", err)
@@ -77,7 +77,7 @@ func newTorrentFile(dict interface{}) (*TorrentFile, error) {
 // DeserializeTorrent serves as a constructor for the TorrentFile struct given a file path
 // to a torrent
 func DeserializeTorrent(filePath string) (*TorrentFile, error) {
-	contents, err := parseFile(filePath)
+	contents, err := parseTorrent(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing torrent file: %w", err)
 	}

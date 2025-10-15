@@ -285,15 +285,18 @@ func run() error {
 			return err
 		}
 
-		eh, err := p.ExtensionHandshake()
-		if err != nil {
-			return fmt.Errorf("extension handshake failed: %w", err)
-		}
-
-		_, err = p.RequestMetadataPiece(byte(eh.UtMetadataID), 0)
+		info, err := p.DownloadMetadata(magnet)
 		if err != nil {
 			return err
 		}
+
+		t := TorrentFile{
+			Announce: magnet.TrackerURL,
+			Info:     info,
+		}
+
+		fmt.Println(t)
+
 	default:
 		return fmt.Errorf("unknown command: %s", command)
 	}

@@ -130,7 +130,7 @@ func constructMagnetHandshakeMessage(infoHash [20]byte) []byte {
 	message[0] = byte(19)
 	copy(message[1:20], "BitTorrent protocol")
 
-	// Set bit 20 to indicate extension support (byte 5, bit 4)
+	// Indicate extension support
 	reserved := make([]byte, 8)
 	reserved[5] = 0x10
 	copy(message[20:28], reserved)
@@ -171,9 +171,9 @@ func parseMetadataPiece(payload []byte) (*MetadataPiece, error) {
 		return nil, fmt.Errorf("metadata response too short")
 	}
 
-	// First byte is extension message ID, skip it
+	// First byte is extension message ID, skip
 	bencodedPart := payload[1:]
-	decoded, dictEnd, err := decodeBencode(payload, 1)
+	decoded, dictEnd, err := decodeBencode(bencodedPart, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode metadata response: %w", err)
 	}
@@ -181,7 +181,6 @@ func parseMetadataPiece(payload []byte) (*MetadataPiece, error) {
 	if !ok {
 		return nil, fmt.Errorf("metadata response not a dictionary")
 	}
-
 	// Check msg_type (should be 1 for data)
 	msgType, ok := dict["msg_type"].(int)
 	if !ok || msgType != 1 {
@@ -206,4 +205,58 @@ func parseMetadataPiece(payload []byte) (*MetadataPiece, error) {
 		TotalSize: totalSize,
 		Data:      data,
 	}, nil
+}
+
+func (p *Peer) DownloadMetadata(magnet *MagnetLink) (*Info, error) {
+	// Perform extension handshake
+	extResp, err := p.ExtensionHandshake()
+	if err != nil {
+		return nil, fmt.Errorf("extension handshake failed: %w", err)
+	}
+
+	if extResp.MetadataSize == 0 {
+		return nil, fmt.Errorf("peer reported metadata_size of 0")
+	}
+
+	const metadataPieceSize = 1 << 14
+	numPieces := (extResp.MetadataSize + metadataPieceSize - 1) / metadataPieceSize
+
+	fmt.Printf("Downloading metadata: %d bytes in %d pieces\n", extResp.MetadataSize, numPieces)
+
+	// Download metadata pieces
+	metadata := make([]byte, 0, extResp.MetadataSize)
+	for i := 0; i < numPieces; i++ {
+		fmt.Printf("Requesting metadata piece %d/%d\n", i+1, numPieces)
+
+		piece, err := p.RequestMetadataPiece(byte(extResp.UtMetadataID), i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get metadata piece %d: %w", i, err)
+		}
+
+		metadata = append(metadata, piece.Data...)
+	}
+
+	// Trim to exact size
+	if len(metadata) > extResp.MetadataSize {
+		metadata = metadata[:extResp.MetadataSize]
+	}
+
+	// Verify info hash
+	calculatedHash := hashPiece(metadata)
+	if !bytes.Equal(calculatedHash, magnet.InfoHash[:]) {
+		return nil, fmt.Errorf("metadata hash mismatch")
+	}
+
+	// Decode metadata (it's a bencoded info dict)
+	decoded, err := Decode(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode metadata: %w", err)
+	}
+
+	infoDict, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("metadata is not a dictionary")
+	}
+
+	return newInfo(infoDict)
 }
