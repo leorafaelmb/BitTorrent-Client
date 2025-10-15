@@ -153,8 +153,8 @@ func (p *Peer) ReadMessage() (*PeerMessage, error) {
 	if _, err = io.ReadFull(p.Conn, lenBytes); err != nil {
 		return nil, fmt.Errorf("error reading length of peer message: %w", err)
 	}
-	length := binary.BigEndian.Uint32(lenBytes)
 
+	length := binary.BigEndian.Uint32(lenBytes)
 	buf := make([]byte, length)
 	r := bytes.NewReader(buf)
 
@@ -267,7 +267,6 @@ func (p *Peer) getBlocks(requests []BlockRequest) ([][]byte, error) {
 		msg, err := p.ReadMessage()
 		if err != nil {
 			return nil, fmt.Errorf("error reading message for block %d: %w", received, err)
-
 		}
 		if msg.ID != 7 {
 			return nil, fmt.Errorf("expected piece message (7), got %d", msg.ID)

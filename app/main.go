@@ -296,6 +296,88 @@ func run() error {
 		}
 
 		fmt.Println(t)
+	case "magnet_download_piece":
+		downloadFilePath := os.Args[3]
+		magnetUrl := os.Args[4]
+		pieceIndex, err := strconv.Atoi(os.Args[5])
+		if err != nil {
+			return err
+		}
+
+		magnet, err := DeserializeMagnet(magnetUrl)
+		var (
+			trackerURL = magnet.TrackerURL
+			infoHash   = urlEncodeInfoHash(magnet.HexInfoHash)
+			peerId     = "leofeopeoluvsanayeli"
+			left       = 0 // We don't know the size yet
+		)
+		treq := newTrackerRequest(trackerURL, infoHash,
+			"leofeopeoluvsanayeli", 999)
+		tres, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		p := Peer{AddrPort: &tres.Peers[0]}
+		err = p.Connect()
+		if err != nil {
+			return err
+		}
+		defer p.Conn.Close()
+		_, err = p.MagnetHandshake(magnet.InfoHash)
+		if err != nil {
+			return err
+		}
+		_, err = p.ReadBitfield()
+		if err != nil {
+			return err
+		}
+
+		metadata, err := p.DownloadMetadata(magnet)
+		if err != nil {
+			return err
+		}
+
+		t := TorrentFile{
+			Announce: magnet.TrackerURL,
+			Info:     metadata,
+		}
+
+		left = t.Info.Length
+		treq = newTrackerRequest(trackerURL, infoHash, peerId, left)
+		tres, err = treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		pieceLength := uint32(t.Info.PieceLength)
+		pieceHash := t.Info.pieceHashes()[pieceIndex]
+		if pieceIndex == len(t.Info.Pieces)/20-1 {
+			pieceLength = uint32(t.Info.Length) - pieceLength*uint32(len(t.Info.Pieces)/20-1)
+		}
+		// interested msg
+		msg, err := p.SendInterested()
+		if err != nil {
+			return err
+		}
+		// unchoke
+		if msg.ID != 1 {
+			return fmt.Errorf("incorrect message id: expected 1 got %d", msg.ID)
+		}
+
+		piece, err := p.getPiece(pieceHash, pieceLength, uint32(pieceIndex))
+		if err != nil {
+			return err
+		}
+		f, err := os.Create(downloadFilePath)
+		if err != nil {
+			return err
+		}
+
+		defer f.Close()
+		if _, err = f.Write(piece); err != nil {
+			return err
+		}
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
