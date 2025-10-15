@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 func hashPiece(piece []byte) []byte {
@@ -218,6 +220,15 @@ func run() error {
 		if _, err = f.Write(fileBytes); err != nil {
 			return err
 		}
+	case "magnet_parse":
+		magnetUri, err := url.Parse(os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Tracker URL:", magnetUri.Query()["tr"][0])
+		fmt.Println("Info Hash:", strings.ReplaceAll(magnetUri.Query()["xt"][0], "urn:btih:", ""))
 
 	default:
 		return fmt.Errorf("unknown command: %s", command)
