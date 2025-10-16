@@ -59,12 +59,12 @@ func run() error {
 		)
 
 		r := newTrackerRequest(trackerURL, infoHash, peerId, left)
-		trackerResponse, err := r.SendRequest()
+		tres, err := r.SendRequest()
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(trackerResponse.PeersString())
+		fmt.Println(tres.PeersString())
 
 	case "handshake":
 		filePath := os.Args[2]
@@ -114,12 +114,12 @@ func run() error {
 		)
 
 		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
-		trackerResponse, err := treq.SendRequest()
+		tres, err := treq.SendRequest()
 		if err != nil {
 			return err
 		}
 
-		peers := trackerResponse.Peers
+		peers := tres.Peers
 
 		p := Peer{
 			AddrPort: &peers[0],
@@ -190,20 +190,18 @@ func run() error {
 		)
 
 		treq := newTrackerRequest(trackerURL, infoHash, peerId, left)
-		trackerResponse, err := treq.SendRequest()
+		tres, err := treq.SendRequest()
 		if err != nil {
 			return err
 		}
 
-		peers := trackerResponse.Peers
+		peers := tres.Peers
 
-		// Create Peer objects from addresses
 		peerList := make([]Peer, len(peers))
 		for i, addr := range peers {
 			peerList[i] = Peer{AddrPort: &addr}
 		}
 
-		// Download using 5 concurrent workers
 		fileBytes, err := t.DownloadFile(peerList, 5)
 		if err != nil {
 			return err
@@ -376,6 +374,78 @@ func run() error {
 
 		defer f.Close()
 		if _, err = f.Write(piece); err != nil {
+			return err
+		}
+	case "magnet_download":
+		downloadFilePath := os.Args[3]
+		magnetUrl := os.Args[4]
+
+		magnet, err := DeserializeMagnet(magnetUrl)
+		var (
+			trackerURL = magnet.TrackerURL
+			infoHash   = urlEncodeInfoHash(magnet.HexInfoHash)
+			peerId     = "leofeopeoluvsanayeli"
+			left       = 0 // We don't know the size yet
+		)
+		treq := newTrackerRequest(trackerURL, infoHash,
+			"leofeopeoluvsanayeli", 999)
+		tres, err := treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		p := Peer{AddrPort: &tres.Peers[0]}
+		err = p.Connect()
+		if err != nil {
+			return err
+		}
+		defer p.Conn.Close()
+		_, err = p.MagnetHandshake(magnet.InfoHash)
+		if err != nil {
+			return err
+		}
+		_, err = p.ReadBitfield()
+		if err != nil {
+			return err
+		}
+
+		metadata, err := p.DownloadMetadata(magnet)
+		if err != nil {
+			return err
+		}
+
+		t := TorrentFile{
+			Announce: magnet.TrackerURL,
+			Info:     metadata,
+		}
+		t.Info.InfoHash = t.Info.getInfoHash()
+
+		left = t.Info.Length
+		treq = newTrackerRequest(trackerURL, infoHash, peerId, left)
+		tres, err = treq.SendRequest()
+		if err != nil {
+			return err
+		}
+
+		peers := tres.Peers
+
+		peerList := make([]Peer, len(peers))
+		for i, addr := range peers {
+			peerList[i] = Peer{AddrPort: &addr}
+		}
+
+		fileBytes, err := t.DownloadFile(peerList, 5)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Create(downloadFilePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		if _, err = f.Write(fileBytes); err != nil {
 			return err
 		}
 
