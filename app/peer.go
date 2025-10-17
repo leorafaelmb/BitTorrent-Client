@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -30,7 +29,7 @@ type PeerMessage struct {
 }
 
 func (p *Peer) Connect() error {
-	conn, err := net.DialTimeout("tcp", p.AddrPort.String(), 3*time.Second)
+	conn, err := net.DialTimeout("tcp", p.AddrPort.String(), ConnectionTimeout*time.Second)
 	if err != nil {
 		return fmt.Errorf("error connecting to peer: %w", err)
 	}
@@ -71,22 +70,17 @@ func (p *Peer) Handshake(t TorrentFile, ext bool) (*Handshake, error) {
 }
 
 func constructHandshakeMessage(t TorrentFile, ext bool) ([]byte, error) {
-	message := make([]byte, 68)
-
-	peerID := make([]byte, 20)
+	message := make([]byte, HandshakeLength)
 	infoHash := t.Info.InfoHash
-	if _, err := rand.Read(peerID); err != nil {
-		return nil, fmt.Errorf("error constructing random 20-byte byte slice: %w", err)
-	}
 
-	message[0] = byte(19)
-	copy(message[1:20], "BitTorrent protocol")
+	message[0] = ProtocolStringLength
+	copy(message[1:20], ProtocolString)
 	copy(message[20:28], make([]byte, 8))
 	copy(message[28:48], infoHash[:])
-	copy(message[48:68], peerID)
+	copy(message[48:68], PeerID)
 
 	if ext {
-		message[25] = 16
+		message[25] = ExtensionID
 	}
 
 	return message, nil
@@ -124,7 +118,8 @@ func readHandshake(conn net.Conn) (*Handshake, error) {
 	}
 
 	// Validate handshake message
-	if h.PstrLen != 19 || string(h.Pstr[:]) != "BitTorrent protocol" {
+	if h.PstrLen != ProtocolStringLength || string(h.Pstr[:]) != ProtocolString {
+		fmt.Println(string(h.Pstr[:]))
 		err = fmt.Errorf("invalid handshake: %w", err)
 	}
 	return h, err
@@ -185,7 +180,7 @@ func (p *Peer) ReadBitfield() (*PeerMessage, error) {
 	if err != nil {
 		return msg, fmt.Errorf("failed to read bitfield: %w", err)
 	}
-	if msg.ID != 5 {
+	if msg.ID != MessageBitfield {
 		return msg, fmt.Errorf("expected bitfield (5), got %d", msg.ID)
 	}
 
@@ -196,10 +191,6 @@ func (p *Peer) ReadBitfield() (*PeerMessage, error) {
 
 func (p *Peer) SendInterested() (*PeerMessage, error) {
 	return p.SendMessage(2, nil)
-}
-
-func (p *Peer) SendHave(index string) (*PeerMessage, error) {
-	return p.SendMessage(4, nil)
 }
 
 func (p *Peer) SendRequest(index, begin, block uint32) (*PeerMessage, error) {
@@ -228,9 +219,6 @@ func (p *Peer) constructPieceRequest(index, begin, length uint32) []byte {
 	return request
 
 }
-
-const MaxPipelineRequests = 5
-const BlockSize uint32 = 1 << 14
 
 type BlockRequest struct {
 	Index  uint32
@@ -268,7 +256,7 @@ func (p *Peer) getBlocks(requests []BlockRequest) ([][]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error reading message for block %d: %w", received, err)
 		}
-		if msg.ID != 7 {
+		if msg.ID != MessagePiece {
 			return nil, fmt.Errorf("expected piece message (7), got %d", msg.ID)
 		}
 
@@ -323,8 +311,61 @@ func (p *Peer) getPiece(pieceHash []byte, pieceLength, pieceIndex uint32) ([]byt
 	return piece, nil
 }
 
+func (p *Peer) DownloadMetadata(magnet *MagnetLink) (*Info, error) {
+	// Perform extension handshake
+	extResp, err := p.ExtensionHandshake()
+	if err != nil {
+		return nil, fmt.Errorf("extension handshake failed: %w", err)
+	}
+
+	if extResp.MetadataSize == 0 {
+		return nil, fmt.Errorf("peer reported metadata_size of 0")
+	}
+
+	numPieces := (extResp.MetadataSize + MetadataPieceSize - 1) / MetadataPieceSize
+
+	fmt.Printf("Downloading metadata: %d bytes in %d pieces\n", extResp.MetadataSize, numPieces)
+
+	// Download metadata pieces
+	metadata := make([]byte, 0, extResp.MetadataSize)
+	for i := 0; i < numPieces; i++ {
+		fmt.Printf("Requesting metadata piece %d/%d\n", i+1, numPieces)
+
+		piece, err := p.RequestMetadataPiece(byte(extResp.UtMetadataID), i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get metadata piece %d: %w", i, err)
+		}
+
+		metadata = append(metadata, piece.Data...)
+	}
+
+	// Trim to exact size
+	if len(metadata) > extResp.MetadataSize {
+		metadata = metadata[:extResp.MetadataSize]
+	}
+
+	// Verify info hash
+	calculatedHash := hashPiece(metadata)
+	if !bytes.Equal(calculatedHash, magnet.InfoHash[:]) {
+		return nil, fmt.Errorf("metadata hash mismatch")
+	}
+
+	// Decode metadata (it's a bencoded info dict)
+	decoded, err := Decode(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode metadata: %w", err)
+	}
+
+	infoDict, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("metadata is not a dictionary")
+	}
+
+	return newInfo(infoDict)
+}
+
 func (p *Peer) ParseBitfield(msg *PeerMessage) error {
-	if msg.ID != 5 {
+	if msg.ID != MessageBitfield {
 		return fmt.Errorf("expected bitfield message (id 5), got id %d", msg.ID)
 	}
 	p.Bitfield = msg.Payload

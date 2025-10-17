@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -121,8 +122,21 @@ func (t TorrentFile) String() string {
 	return fmt.Sprintf(
 		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
 		t.Announce, t.Info.Length, t.Info.getInfoHash(), t.Info.PieceLength,
-		t.Info.getPieceHashesStr(),
+		t.Info.GetPieceHashesStr(),
 	)
+}
+
+func (t TorrentFile) GetPeers() ([]netip.AddrPort, error) {
+	trackerURL := t.Announce
+	infoHash := urlEncodeInfoHash(t.Info.getHexInfoHash())
+
+	treq := newTrackerRequest(trackerURL, infoHash, t.Info.Length)
+	tres, err := treq.SendRequest()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get peers from tracker: %w", err)
+	}
+
+	return tres.Peers, nil
 }
 
 // getInfoHash returns the SHA1 hash of the bencoded info dictionary
@@ -157,7 +171,7 @@ func (i Info) serializeInfo() []byte {
 
 }
 
-func (i Info) getPieceHashes() []string {
+func (i Info) GetPieceHashes() []string {
 	var pieceHashes []string
 	pieces := i.Pieces
 	for j := 0; j < len(pieces); j += 20 {
@@ -177,22 +191,13 @@ func (i Info) pieceHashes() [][]byte {
 	return piecesSlice
 }
 
-func (i Info) getPieceHashesStr() string {
-	pieceHashes := i.getPieceHashes()
+func (i Info) GetPieceHashesStr() string {
+	pieceHashes := i.GetPieceHashes()
 	pieceHashesStr := ""
 	for _, h := range pieceHashes {
 		pieceHashesStr += fmt.Sprintf("%s\n", h)
 	}
 	return strings.TrimSpace(pieceHashesStr)
-}
-
-// urlEncodeInfoHash URL-encodes a hexadecimal-represented info hash
-func urlEncodeInfoHash(infoHash string) string {
-	urlEncodedHash := ""
-	for i := 0; i < len(infoHash); i += 2 {
-		urlEncodedHash += fmt.Sprintf("%%%s%s", string(infoHash[i]), string(infoHash[i+1]))
-	}
-	return urlEncodedHash
 }
 
 type PieceWork struct {

@@ -13,7 +13,7 @@ import (
 type TrackerRequest struct {
 	TrackerURL string
 	InfoHash   string // urlencoded 20-byte info hash
-	PeerId     string
+	PeerID     string
 	Port       int
 	Uploaded   int
 	Downloaded int
@@ -23,17 +23,17 @@ type TrackerRequest struct {
 
 // newTrackerRequest serves as a constructor for the TrackerRequest struct.
 func newTrackerRequest(
-	trackerUrl string, infoHash string, peerId string, left int) *TrackerRequest {
+	trackerUrl string, infoHash string, left int) *TrackerRequest {
 
 	return &TrackerRequest{
 		TrackerURL: trackerUrl,
 		InfoHash:   infoHash,
-		PeerId:     peerId,
-		Port:       6881,
-		Uploaded:   0,
-		Downloaded: 0,
+		PeerID:     PeerID,
+		Port:       DefaultPort,
+		Uploaded:   DefaultUploaded,
+		Downloaded: DefaultDownloaded,
 		Left:       left,
-		Compact:    1,
+		Compact:    DefaultCompact,
 	}
 }
 
@@ -41,7 +41,7 @@ func newTrackerRequest(
 func (treq TrackerRequest) getFullUrl() string {
 	return fmt.Sprintf(
 		"%s?info_hash=%s&peer_id=%s&port=%d&uploaded=%d&downloaded=%d&left=%d&compact=%d",
-		treq.TrackerURL, treq.InfoHash, treq.PeerId, treq.Port, treq.Uploaded, treq.Downloaded,
+		treq.TrackerURL, treq.InfoHash, treq.PeerID, treq.Port, treq.Uploaded, treq.Downloaded,
 		treq.Left, treq.Compact)
 }
 

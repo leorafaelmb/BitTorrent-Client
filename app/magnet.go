@@ -37,6 +37,38 @@ func DeserializeMagnet(uri string) (*MagnetLink, error) {
 	}, nil
 }
 
+func ConnectToMagnetPeer(magnetURL string) (*Peer, *MagnetLink, error) {
+	magnet, err := DeserializeMagnet(magnetURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	treq := newTrackerRequest(magnet.TrackerURL,
+		urlEncodeInfoHash(magnet.HexInfoHash), 999)
+
+	tres, err := treq.SendRequest()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	p := &Peer{AddrPort: &tres.Peers[0]}
+	if err = p.Connect(); err != nil {
+		return nil, nil, err
+	}
+
+	if _, err = p.MagnetHandshake(magnet.InfoHash); err != nil {
+		p.Conn.Close()
+		return nil, nil, err
+	}
+
+	if _, err = p.ReadBitfield(); err != nil {
+		p.Conn.Close()
+		return nil, nil, err
+	}
+
+	return p, magnet, nil
+}
+
 func (p *Peer) ExtensionHandshake() (*ExtensionHandshakeResponse, error) {
 	payload := append([]byte{0}, []byte("d1:md11:ut_metadatai1eee")...)
 
@@ -46,7 +78,7 @@ func (p *Peer) ExtensionHandshake() (*ExtensionHandshakeResponse, error) {
 		return nil, fmt.Errorf("failed to send extension handshake: %w", err)
 	}
 
-	if msg.ID != 20 {
+	if msg.ID != MessageExtension {
 		return nil, fmt.Errorf("expected extension message (20), got %d", msg.ID)
 	}
 
@@ -116,8 +148,8 @@ func (p *Peer) MagnetHandshake(infoHash [20]byte) (*Handshake, error) {
 
 	copy(p.ID[:], h.PeerID[:])
 
-	// Check if peer supports extension protocol (bit 20 in reserved bytes)
-	if h.Reserved[5]&0x10 == 0 {
+	// Check if peer supports extension protocol
+	if h.Reserved[ExtensionBitPosition]&ExtensionID == 0 {
 		return nil, fmt.Errorf("peer does not support extension protocol")
 	}
 
@@ -125,18 +157,18 @@ func (p *Peer) MagnetHandshake(infoHash [20]byte) (*Handshake, error) {
 }
 
 func constructMagnetHandshakeMessage(infoHash [20]byte) []byte {
-	message := make([]byte, 68)
+	message := make([]byte, HandshakeLength)
 
-	message[0] = byte(19)
-	copy(message[1:20], "BitTorrent protocol")
+	message[0] = byte(ProtocolStringLength)
+	copy(message[1:20], ProtocolString)
 
 	// Indicate extension support
 	reserved := make([]byte, 8)
-	reserved[5] = 0x10
+	reserved[ExtensionBitPosition] = ExtensionID
 	copy(message[20:28], reserved)
 
 	copy(message[28:48], infoHash[:])
-	copy(message[48:68], "leofeopeoluvsanayeli")
+	copy(message[48:68], PeerID)
 
 	return message
 }
@@ -153,7 +185,7 @@ func (p *Peer) RequestMetadataPiece(utMetadataID byte, piece int) (*MetadataPiec
 		return nil, fmt.Errorf("failed to send metadata request: %w", err)
 	}
 
-	if msg.ID != 20 {
+	if msg.ID != MessageExtension {
 		return nil, fmt.Errorf("expected extension message (20), got %d", msg.ID)
 	}
 
@@ -205,58 +237,4 @@ func parseMetadataPiece(payload []byte) (*MetadataPiece, error) {
 		TotalSize: totalSize,
 		Data:      data,
 	}, nil
-}
-
-func (p *Peer) DownloadMetadata(magnet *MagnetLink) (*Info, error) {
-	// Perform extension handshake
-	extResp, err := p.ExtensionHandshake()
-	if err != nil {
-		return nil, fmt.Errorf("extension handshake failed: %w", err)
-	}
-
-	if extResp.MetadataSize == 0 {
-		return nil, fmt.Errorf("peer reported metadata_size of 0")
-	}
-
-	const metadataPieceSize = 1 << 14
-	numPieces := (extResp.MetadataSize + metadataPieceSize - 1) / metadataPieceSize
-
-	fmt.Printf("Downloading metadata: %d bytes in %d pieces\n", extResp.MetadataSize, numPieces)
-
-	// Download metadata pieces
-	metadata := make([]byte, 0, extResp.MetadataSize)
-	for i := 0; i < numPieces; i++ {
-		fmt.Printf("Requesting metadata piece %d/%d\n", i+1, numPieces)
-
-		piece, err := p.RequestMetadataPiece(byte(extResp.UtMetadataID), i)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get metadata piece %d: %w", i, err)
-		}
-
-		metadata = append(metadata, piece.Data...)
-	}
-
-	// Trim to exact size
-	if len(metadata) > extResp.MetadataSize {
-		metadata = metadata[:extResp.MetadataSize]
-	}
-
-	// Verify info hash
-	calculatedHash := hashPiece(metadata)
-	if !bytes.Equal(calculatedHash, magnet.InfoHash[:]) {
-		return nil, fmt.Errorf("metadata hash mismatch")
-	}
-
-	// Decode metadata (it's a bencoded info dict)
-	decoded, err := Decode(metadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode metadata: %w", err)
-	}
-
-	infoDict, ok := decoded.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("metadata is not a dictionary")
-	}
-
-	return newInfo(infoDict)
 }
