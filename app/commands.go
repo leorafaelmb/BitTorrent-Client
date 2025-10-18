@@ -262,14 +262,6 @@ func handleMagnetHandshake(magnetURL string) error {
 func handleMagnetInfo(magnetURL string) error {
 	p, magnet, err := ConnectToMagnetPeer(magnetURL)
 	defer p.Conn.Close()
-	_, err = p.MagnetHandshake(magnet.InfoHash)
-	if err != nil {
-		return err
-	}
-	_, err = p.ReadBitfield()
-	if err != nil {
-		return err
-	}
 
 	info, err := p.DownloadMetadata(magnet)
 	if err != nil {
@@ -295,14 +287,6 @@ func handleMagnetDownloadPiece(args []string) error {
 
 	p, magnet, err := ConnectToMagnetPeer(magnetURL)
 	defer p.Conn.Close()
-	_, err = p.MagnetHandshake(magnet.InfoHash)
-	if err != nil {
-		return err
-	}
-	_, err = p.ReadBitfield()
-	if err != nil {
-		return err
-	}
 
 	metadata, err := p.DownloadMetadata(magnet)
 	if err != nil {
@@ -313,6 +297,7 @@ func handleMagnetDownloadPiece(args []string) error {
 		Announce: magnet.TrackerURL,
 		Info:     metadata,
 	}
+	t.Info.InfoHash = magnet.InfoHash
 
 	left := t.Info.Length
 	treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash), left)
@@ -368,6 +353,7 @@ func handleMagnetDownload(args []string) error {
 		Announce: magnet.TrackerURL,
 		Info:     metadata,
 	}
+	t.Info.InfoHash = magnet.InfoHash
 	peers, err := t.GetPeers()
 	if err != nil {
 		return err
