@@ -338,8 +338,8 @@ func handleMagnetDownloadPiece(args []string) error {
 }
 
 func handleMagnetDownload(args []string) error {
-	downloadFilePath := os.Args[3]
-	magnetURl := os.Args[4]
+	downloadFilePath := args[3]
+	magnetURl := args[4]
 
 	p, magnet, err := ConnectToMagnetPeer(magnetURl)
 	defer p.Conn.Close()
