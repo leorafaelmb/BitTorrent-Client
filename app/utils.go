@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// hashPiece computes the SHA1 hash of a piece for verification
 func hashPiece(piece []byte) []byte {
 	hasher := sha1.New()
 	hasher.Write(piece)

@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// parseTorrent parses a torrent file and returns its bencoded data
+// parseTorrent reads a .torrent file and returns its raw bytes
 func parseTorrent(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -34,12 +34,14 @@ func parseTorrent(path string) ([]byte, error) {
 	return fileBytes, nil
 }
 
+// TorrentFile represents a parsed .torrent file
 type TorrentFile struct {
 	Announce string
 	Info     *Info
 }
 
-// Info represents the info dictionary and its contents in a torrent file
+// Info represents the 'info' dictionary from a torrent file.
+// This contains all metadata about the file(s) being shared.
 type Info struct {
 	Length      int
 	Name        string
@@ -48,8 +50,7 @@ type Info struct {
 	InfoHash    [20]byte
 }
 
-// newTorrentFile serves as a constructor to the TorrentFile struct, given a decoded dictionary of
-// a torrent file's contents
+// newTorrentFile constructs a TorrentFile given a decoded dictionary of a torrent file's contents
 func newTorrentFile(dict interface{}) (*TorrentFile, error) {
 	d, ok := dict.(map[string]interface{})
 	if !ok {
@@ -75,8 +76,7 @@ func newTorrentFile(dict interface{}) (*TorrentFile, error) {
 	}, nil
 }
 
-// DeserializeTorrent serves as a constructor for the TorrentFile struct given a file path
-// to a torrent
+// DeserializeTorrent reads and parses a .torrent file from disk.
 func DeserializeTorrent(filePath string) (*TorrentFile, error) {
 	contents, err := parseTorrent(filePath)
 	if err != nil {
@@ -90,7 +90,7 @@ func DeserializeTorrent(filePath string) (*TorrentFile, error) {
 	return newTorrentFile(decoded)
 }
 
-// newInfo serves as a constructor for the Info struct
+// newInfo constructs an Info struct from the 'info' dictionary
 func newInfo(infoMap map[string]interface{}) (*Info, error) {
 	length, ok := infoMap["length"].(int)
 	if !ok {
@@ -126,6 +126,7 @@ func (t TorrentFile) String() string {
 	)
 }
 
+// GetPeers sends a request to the tracker to obtain peers for file download
 func (t TorrentFile) GetPeers() ([]netip.AddrPort, error) {
 	trackerURL := t.Announce
 	infoHash := urlEncodeInfoHash(t.Info.getHexInfoHash())
@@ -171,7 +172,8 @@ func (i Info) serializeInfo() []byte {
 
 }
 
-func (i Info) GetPieceHashes() []string {
+// HexPieceHashes formats piece hashes for display in hexadecimal format
+func (i Info) HexPieceHashes() []string {
 	var pieceHashes []string
 	pieces := i.Pieces
 	for j := 0; j < len(pieces); j += 20 {
@@ -182,6 +184,7 @@ func (i Info) GetPieceHashes() []string {
 	return pieceHashes
 }
 
+// pieceHashes returns piece hashes as [][]byte
 func (i Info) pieceHashes() [][]byte {
 	pieces := i.Pieces
 	var piecesSlice [][]byte
@@ -191,8 +194,9 @@ func (i Info) pieceHashes() [][]byte {
 	return piecesSlice
 }
 
+// getPieceHashesStr formats piece hashes for display
 func (i Info) GetPieceHashesStr() string {
-	pieceHashes := i.GetPieceHashes()
+	pieceHashes := i.HexPieceHashes()
 	pieceHashesStr := ""
 	for _, h := range pieceHashes {
 		pieceHashesStr += fmt.Sprintf("%s\n", h)
@@ -200,17 +204,20 @@ func (i Info) GetPieceHashesStr() string {
 	return strings.TrimSpace(pieceHashesStr)
 }
 
+// PieceWork represents a unit of work for the worker pool.
 type PieceWork struct {
 	Index  int
 	Hash   []byte
 	Length uint32
 }
 
+// PieceResult represents a successfully downloaded piece
 type PieceResult struct {
 	Index   int
 	Payload []byte
 }
 
+// DownloadFile orchestrates concurrent download from multiple peers using a worker pool.
 func (t TorrentFile) DownloadFile(peers []Peer, maxWorkers int) ([]byte, error) {
 	var (
 		pieceHashes = t.Info.pieceHashes()
@@ -292,7 +299,7 @@ func (t TorrentFile) worker(peer *Peer, workQueue chan *PieceWork, results chan 
 	}
 
 	// Receive unchoke
-	if msg.ID != 1 {
+	if msg.ID != MessageUnchoke {
 		return fmt.Errorf("expected unchoke (1), got %d", msg.ID)
 	}
 

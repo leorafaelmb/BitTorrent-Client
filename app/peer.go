@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Peer represents a network connection to another BitTorrent client.
 type Peer struct {
 	AddrPort *netip.AddrPort
 	ID       [20]byte
@@ -20,14 +21,17 @@ type Peer struct {
 	Bitfield BitField
 }
 
+// BitField is a compact representation of which pieces a peer has.
 type BitField []byte
 
+// PeerMessage represents a message sent between peers after the handshake
 type PeerMessage struct {
 	Length  uint32
 	ID      byte
 	Payload []byte
 }
 
+// Connect establishes a TCP connection to the peer
 func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.AddrPort.String(), ConnectionTimeout*time.Second)
 	if err != nil {
@@ -37,6 +41,7 @@ func (p *Peer) Connect() error {
 	return nil
 }
 
+// Handshake represents the first message exchanged between peers.
 type Handshake struct {
 	PstrLen  byte
 	Pstr     [19]byte
@@ -45,6 +50,7 @@ type Handshake struct {
 	PeerID   [20]byte
 }
 
+// Handshake performs the BitTorrent handshake with a peer.
 func (p *Peer) Handshake(t TorrentFile, ext bool) (*Handshake, error) {
 	c := p.Conn
 	message, err := constructHandshakeMessage(t, ext)
@@ -69,6 +75,7 @@ func (p *Peer) Handshake(t TorrentFile, ext bool) (*Handshake, error) {
 	return h, nil
 }
 
+// constructHandshakeMessage creates the handshake message bytes.
 func constructHandshakeMessage(t TorrentFile, ext bool) ([]byte, error) {
 	message := make([]byte, HandshakeLength)
 	infoHash := t.Info.InfoHash
@@ -86,6 +93,7 @@ func constructHandshakeMessage(t TorrentFile, ext bool) ([]byte, error) {
 	return message, nil
 }
 
+// readHandshake reads and parses a handshake message from the connection
 func readHandshake(conn net.Conn) (*Handshake, error) {
 	buf := make([]byte, 68)
 	_, err := io.ReadFull(conn, buf)
@@ -125,6 +133,8 @@ func readHandshake(conn net.Conn) (*Handshake, error) {
 	return h, err
 }
 
+// SendMessage sends a message to the peer and waits for a response.
+// Used for messages that expect an immediate reply.
 func (p *Peer) SendMessage(messageID byte, payload []byte) (*PeerMessage, error) {
 	length := uint32(len(payload) + 1)
 	message := make([]byte, 4+length)
@@ -142,6 +152,8 @@ func (p *Peer) SendMessage(messageID byte, payload []byte) (*PeerMessage, error)
 	return response, err
 }
 
+// ReadMessage reads one complete message from the peer.
+// Blocks until a full message is received.
 func (p *Peer) ReadMessage() (*PeerMessage, error) {
 	var err error
 	lenBytes := make([]byte, 4)
@@ -175,6 +187,7 @@ func (p *Peer) ReadMessage() (*PeerMessage, error) {
 
 }
 
+// ReadBitfield reads and stores the peer's bitfield message.
 func (p *Peer) ReadBitfield() (*PeerMessage, error) {
 	msg, err := p.ReadMessage()
 	if err != nil {
@@ -189,10 +202,13 @@ func (p *Peer) ReadBitfield() (*PeerMessage, error) {
 	return msg, nil
 }
 
+// SendInterested sends a message to the peer communicating we're interested in downloading from them
 func (p *Peer) SendInterested() (*PeerMessage, error) {
 	return p.SendMessage(2, nil)
 }
 
+// SendRequest requests a specific block from a piece.
+// index: which piece, begin: byte offset within piece, block: number of bytes
 func (p *Peer) SendRequest(index, begin, block uint32) (*PeerMessage, error) {
 	payload := make([]byte, 12)
 	binary.BigEndian.PutUint32(payload[0:4], index)
@@ -202,6 +218,7 @@ func (p *Peer) SendRequest(index, begin, block uint32) (*PeerMessage, error) {
 	return p.SendMessage(6, payload)
 }
 
+// constructPieceRequest builds a request message
 func (p *Peer) constructPieceRequest(index, begin, length uint32) []byte {
 	request := make([]byte, 17)
 
@@ -220,12 +237,15 @@ func (p *Peer) constructPieceRequest(index, begin, length uint32) []byte {
 
 }
 
+// BlockRequest represents a single block request within a piece
 type BlockRequest struct {
 	Index  uint32
 	Begin  uint32
 	Length uint32
 }
 
+// sendRequestOnly sends a request without waiting for a response.
+// Used in pipelining to send multiple requests back-to-back.
 func (p *Peer) sendRequestOnly(index, begin, length uint32) error {
 	request := p.constructPieceRequest(index, begin, length)
 
@@ -236,6 +256,9 @@ func (p *Peer) sendRequestOnly(index, begin, length uint32) error {
 	return nil
 }
 
+// getBlocks downloads multiple blocks using TCP pipelining.
+// Pipelining allows us to send up to MaxPipelineRequests without waiting,
+// keeping the connection busy and dramatically improving download speed.
 func (p *Peer) getBlocks(requests []BlockRequest) ([][]byte, error) {
 	numBlocks := len(requests)
 	blocks := make([][]byte, numBlocks)
@@ -272,6 +295,8 @@ func (p *Peer) getBlocks(requests []BlockRequest) ([][]byte, error) {
 	return blocks, nil
 }
 
+// getPiece downloads and verifies a complete piece.
+// Breaks the piece into 16KB blocks and uses pipelining for download efficiency.
 func (p *Peer) getPiece(pieceHash []byte, pieceLength, pieceIndex uint32) ([]byte, error) {
 	piece := make([]byte, 0, pieceLength)
 

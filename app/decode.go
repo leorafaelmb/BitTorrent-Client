@@ -7,11 +7,14 @@ import (
 	"unicode/utf8"
 )
 
+// Decode decodes bencoded data into Go types
 func Decode(bencoded []byte) (interface{}, error) {
 	result, _, err := decodeBencode(bencoded, 0)
 	return result, err
 }
 
+// decode is the internal recursive decoder that processes bencoded data
+// Returns string, int, []interace{}, map[string]interface{}, or []byte depending on input
 func decodeBencode(bencoded []byte, index int) (interface{}, int, error) {
 	identifier := rune(bencoded[index])
 	if unicode.IsDigit(identifier) {
@@ -36,6 +39,8 @@ func decodeBencode(bencoded []byte, index int) (interface{}, int, error) {
 	}
 }
 
+// decodeString decodes a bencoded string of format: <length>:<contents>
+// Returns the decoded bytes (not converted to string), next index, and any error.
 func decodeString(bencoded []byte, index int) ([]byte, int, error) {
 	var firstColonIndex int
 
@@ -58,6 +63,8 @@ func decodeString(bencoded []byte, index int) ([]byte, int, error) {
 	return decodedString, endIndex, nil
 }
 
+// decodeInt decodes a bencoded integer of format: i<number>e
+// Example: "i42e" returns 42
 func decodeInt(bencoded []byte, index int) (int, int, error) {
 	i := index
 	for ; bencoded[i] != 'e'; i++ {
@@ -73,6 +80,8 @@ func decodeInt(bencoded []byte, index int) (int, int, error) {
 	return decodedInt, i, nil
 }
 
+// decodeList decodes a bencoded list of format: l<item1><item2>...e
+// Returns a slice of decoded items (mixed types possible)
 func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 	decodedList := make([]interface{}, 0)
 	i := index + 1
@@ -97,6 +106,9 @@ func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 
 }
 
+// decodeDict decodes a bencoded dictionary of format: d<key1><val1><key2><val2>...e
+// Keys must be strings and are sorted in lexicographical order.
+// Returns a map with string keys and mixed-type values.
 func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error) {
 	decodedDict := make(map[string]interface{})
 	i := index + 1

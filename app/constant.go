@@ -36,12 +36,12 @@ const (
 	DefaultPort       = 6881
 	DefaultUploaded   = 0
 	DefaultDownloaded = 0
-	DefaultCompact    = 1 // Request compact peer list from tracker
+	DefaultCompact    = 1
 	ConnectionTimeout = 3 // seconds
 )
 
 // Magnet Link Extension
 const (
-	ExtensionBitPosition = 5    // Reserved byte index for extension bit
-	ExtensionID          = 0x10 // Bit mask for extension protocol support
+	ExtensionBitPosition = 5 // Reserved byte index for extension bit
+	ExtensionID          = 0x10
 )
