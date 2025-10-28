@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -180,38 +181,51 @@ func handleDownloadPiece(args []string) error {
 }
 
 func handleDownload(args []string) error {
-	downloadFilePath := args[3]
-	torrentFilePath := args[4]
+	downloadFilePath := os.Args[3]
+	torrentFilePath := os.Args[4]
 
 	t, err := DeserializeTorrent(torrentFilePath)
 	if err != nil {
 		return err
 	}
 
+	fmt.Println("\nStarting download...")
+
 	peers, err := t.GetPeers()
 	if err != nil {
 		return err
 	}
+	fmt.Printf("Found %d peers\n", len(peers))
 
+	// Create Peer objects from addresses
 	peerList := make([]Peer, len(peers))
 	for i, addr := range peers {
-		peerList[i] = Peer{AddrPort: &addr}
+		addrCopy := addr
+		peerList[i] = Peer{AddrPort: &addrCopy}
 	}
 
-	fileBytes, err := t.DownloadFile(peerList, 5)
+	// Download using multiple concurrent workers with pipelining
+	maxWorkers := min(10, len(peerList))
+	fmt.Printf("Using %d concurrent workers\n\n", maxWorkers)
+
+	fileBytes, err := t.DownloadFile(peerList, maxWorkers)
 	if err != nil {
 		return err
 	}
 
-	f, err := os.Create(downloadFilePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	fmt.Println("\nDownload complete! Saving file(s)...")
 
-	if _, err = f.Write(fileBytes); err != nil {
-		return err
+	// Use the new SaveFile method which handles both single and multi-file
+	if err := t.SaveFile(downloadFilePath, fileBytes); err != nil {
+		return fmt.Errorf("error saving file(s): %w", err)
 	}
+
+	if t.Info.IsSingleFile() {
+		fmt.Printf("File saved to: %s\n", downloadFilePath)
+	} else {
+		fmt.Printf("Files saved to directory: %s\n", filepath.Join(filepath.Dir(downloadFilePath), t.Info.Name))
+	}
+
 	return nil
 }
 
