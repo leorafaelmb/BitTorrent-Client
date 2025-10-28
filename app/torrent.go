@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"net/netip"
@@ -38,16 +37,6 @@ func parseTorrent(path string) ([]byte, error) {
 type TorrentFile struct {
 	Announce string
 	Info     *Info
-}
-
-// Info represents the 'info' dictionary from a torrent file.
-// This contains all metadata about the file(s) being shared.
-type Info struct {
-	Length      int
-	Name        string
-	PieceLength int
-	Pieces      []byte
-	InfoHash    [20]byte
 }
 
 // newTorrentFile constructs a TorrentFile given a decoded dictionary of a torrent file's contents
@@ -90,38 +79,23 @@ func DeserializeTorrent(filePath string) (*TorrentFile, error) {
 	return newTorrentFile(decoded)
 }
 
-// newInfo constructs an Info struct from the 'info' dictionary
-func newInfo(infoMap map[string]interface{}) (*Info, error) {
-	length, ok := infoMap["length"].(int)
-	if !ok {
-		return nil, fmt.Errorf("error accessing info length: not an int")
-	}
-	name, ok := infoMap["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("error accessing info name: not a string")
-	}
-	pieceLength, ok := infoMap["piece length"].(int)
-	if !ok {
-		return nil, fmt.Errorf("error accessing info piece length: not an int")
-	}
-	pieces, ok := infoMap["pieces"].([]byte)
-	if !ok {
-		return nil, fmt.Errorf("error accessing info pieces: not a byte slice")
-	}
-
-	return &Info{
-		Length:      length,
-		Name:        name,
-		PieceLength: pieceLength,
-		Pieces:      pieces,
-	}, nil
-}
-
 // String returns a string representation of the torrent file
 func (t TorrentFile) String() string {
+	filesInfo := ""
+	if t.Info.IsSingleFile() {
+		filesInfo = fmt.Sprintf("Single File: %s (%d bytes)", t.Info.Name, t.Info.Length)
+	} else {
+		filesInfo = fmt.Sprintf("Multi-File: %s (root directory)\n", t.Info.Name)
+		for i, f := range t.Info.Files {
+			path := strings.Join(f.Path, "/")
+			filesInfo += fmt.Sprintf("  File %d: %s (%d bytes)\n", i+1, path, f.Length)
+		}
+	}
+
 	return fmt.Sprintf(
-		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\nPiece Hashes:\n%s",
+		"Tracker URL: %s\nLength: %d\nInfo Hash: %x\nPiece Length: %d\n%s\nPiece Hashes:\n%s",
 		t.Announce, t.Info.Length, t.Info.getInfoHash(), t.Info.PieceLength,
+		strings.TrimSpace(filesInfo),
 		t.Info.GetPieceHashesStr(),
 	)
 }
@@ -140,78 +114,12 @@ func (t TorrentFile) GetPeers() ([]netip.AddrPort, error) {
 	return tres.Peers, nil
 }
 
-// getInfoHash returns the SHA1 hash of the bencoded info dictionary
-func (i Info) getInfoHash() [20]byte {
-	infoHash := [20]byte{}
-	hasher := sha1.New()
-	bencodedBytes := i.serializeInfo()
-	hasher.Write(bencodedBytes)
-
-	sha := hasher.Sum(nil)
-	copy(infoHash[:], sha)
-	return infoHash
-}
-
-// getHexInfoHash returns the info hash in hexadecimal representation
-func (i Info) getHexInfoHash() string {
-	return fmt.Sprintf("%x", i.getInfoHash())
-}
-
-// serializeInfo bencodes the Info struct
-func (i Info) serializeInfo() []byte {
-	lengthB := []byte(fmt.Sprintf("6:lengthi%de", i.Length))
-	nameB := []byte(fmt.Sprintf("4:name%d:%s", len(i.Name), i.Name))
-	pLB := []byte(fmt.Sprintf("12:piece lengthi%de", i.PieceLength))
-	pieces := []byte(fmt.Sprintf("6:pieces%d:", len(i.Pieces)))
-	pieces = append(pieces, i.Pieces...)
-
-	infoB := []byte{'d'}
-	infoB = append(append(append(append(append(infoB, lengthB...), nameB...), pLB...), pieces...),
-		'e')
-	return infoB
-
-}
-
-// HexPieceHashes formats piece hashes for display in hexadecimal format
-func (i Info) HexPieceHashes() []string {
-	var pieceHashes []string
-	pieces := i.Pieces
-	for j := 0; j < len(pieces); j += 20 {
-		piece := pieces[j : j+20]
-		pieceHashes = append(pieceHashes, fmt.Sprintf("%x", piece))
-	}
-
-	return pieceHashes
-}
-
-// pieceHashes returns piece hashes as [][]byte
-func (i Info) pieceHashes() [][]byte {
-	pieces := i.Pieces
-	var piecesSlice [][]byte
-	for j := 0; j < len(pieces); j += 20 {
-		piecesSlice = append(piecesSlice, pieces[j:j+20])
-	}
-	return piecesSlice
-}
-
-// getPieceHashesStr formats piece hashes for display
-func (i Info) GetPieceHashesStr() string {
-	pieceHashes := i.HexPieceHashes()
-	pieceHashesStr := ""
-	for _, h := range pieceHashes {
-		pieceHashesStr += fmt.Sprintf("%s\n", h)
-	}
-	return strings.TrimSpace(pieceHashesStr)
-}
-
-// PieceWork represents a unit of work for the worker pool.
 type PieceWork struct {
 	Index  int
 	Hash   []byte
 	Length uint32
 }
 
-// PieceResult represents a successfully downloaded piece
 type PieceResult struct {
 	Index   int
 	Payload []byte
