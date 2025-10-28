@@ -1,4 +1,4 @@
-package main
+package metainfo
 
 import (
 	"crypto/sha1"
@@ -24,8 +24,8 @@ type FileInfo struct {
 	Path   []string
 }
 
-// newInfo constructs an Info struct from the 'info' dictionary
-func newInfo(infoMap map[string]interface{}) (*Info, error) {
+// NewInfo constructs an Info struct from the 'info' dictionary
+func NewInfo(infoMap map[string]interface{}) (*Info, error) {
 	name, ok := infoMap["name"].(string)
 	if !ok {
 		return nil, fmt.Errorf("error accessing info name: not a string")
@@ -135,8 +135,8 @@ func (i Info) getInfoHash() [20]byte {
 	return infoHash
 }
 
-// getHexInfoHash returns the info hash in hexadecimal representation
-func (i Info) getHexInfoHash() string {
+// GetHexInfoHash returns the info hash in hexadecimal representation
+func (i Info) GetHexInfoHash() string {
 	return fmt.Sprintf("%x", i.getInfoHash())
 }
 
@@ -237,8 +237,8 @@ func (i Info) HexPieceHashes() []string {
 	return pieceHashes
 }
 
-// pieceHashes returns piece hashes as [][]byte
-func (i Info) pieceHashes() [][]byte {
+// PieceHashes returns piece hashes as [][]byte
+func (i Info) PieceHashes() [][]byte {
 	pieces := i.Pieces
 	var piecesSlice [][]byte
 	for j := 0; j < len(pieces); j += 20 {

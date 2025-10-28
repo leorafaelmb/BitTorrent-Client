@@ -1,4 +1,4 @@
-package main
+package internal
 
 // Peer ID used for all BitTorrent communications
 const PeerID = "leofeopeoluvsanayeli"

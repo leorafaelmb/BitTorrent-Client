@@ -1,8 +1,10 @@
-package main
+package tracker
 
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
 	"io"
 	"net/http"
 	"net/netip"
@@ -21,19 +23,19 @@ type TrackerRequest struct {
 	Compact    int
 }
 
-// newTrackerRequest serves as a constructor for the TrackerRequest struct.
-func newTrackerRequest(
+// NewTrackerRequest serves as a constructor for the TrackerRequest struct.
+func NewTrackerRequest(
 	trackerUrl string, infoHash string, left int) *TrackerRequest {
 
 	return &TrackerRequest{
 		TrackerURL: trackerUrl,
 		InfoHash:   infoHash,
-		PeerID:     PeerID,
-		Port:       DefaultPort,
-		Uploaded:   DefaultUploaded,
-		Downloaded: DefaultDownloaded,
+		PeerID:     internal.PeerID,
+		Port:       internal.DefaultPort,
+		Uploaded:   internal.DefaultUploaded,
+		Downloaded: internal.DefaultDownloaded,
 		Left:       left,
-		Compact:    DefaultCompact,
+		Compact:    internal.DefaultCompact,
 	}
 }
 
@@ -68,7 +70,7 @@ type TrackerResponse struct {
 }
 
 func newTrackerResponseFromBytes(response []byte) (*TrackerResponse, error) {
-	decoded, err := Decode(response)
+	decoded, err := bencode.Decode(response)
 	if err != nil {
 		fmt.Println("error decoding tracker response body: ", err)
 		return nil, err

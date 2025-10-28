@@ -7,6 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/codecrafters-io/bittorrent-starter-go/internal"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/downloader"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/tracker"
 )
 
 func runCommand(command string, args []string) error {
@@ -41,7 +48,7 @@ func runCommand(command string, args []string) error {
 }
 
 func handleDecode(bencodedValue string) error {
-	decoded, err := Decode([]byte(bencodedValue))
+	decoded, err := bencode.Decode([]byte(bencodedValue))
 	if err != nil {
 		return err
 	}
@@ -51,7 +58,7 @@ func handleDecode(bencodedValue string) error {
 }
 
 func handleInfo(filePath string) error {
-	t, err := DeserializeTorrent(filePath)
+	t, err := metainfo.DeserializeTorrent(filePath)
 	if err != nil {
 		return err
 	}
@@ -60,18 +67,18 @@ func handleInfo(filePath string) error {
 }
 
 func handlePeers(filePath string) error {
-	t, err := DeserializeTorrent(filePath)
+	t, err := metainfo.DeserializeTorrent(filePath)
 	if err != nil {
 		return err
 	}
 
 	var (
 		trackerURL = t.Announce
-		infoHash   = urlEncodeInfoHash(t.Info.getHexInfoHash())
+		infoHash   = metainfo.URLEncodeInfoHash(t.Info.GetHexInfoHash())
 		left       = t.Info.Length
 	)
 
-	r := newTrackerRequest(trackerURL, infoHash, left)
+	r := tracker.NewTrackerRequest(trackerURL, infoHash, left)
 	tres, err := r.SendRequest()
 	if err != nil {
 		return err
@@ -87,11 +94,11 @@ func handleHandshake(args []string) error {
 
 	addrPort, err := netip.ParseAddrPort(peerAddress)
 
-	p := Peer{
+	p := peer.Peer{
 		AddrPort: &addrPort,
 	}
 
-	t, err := DeserializeTorrent(filePath)
+	t, err := metainfo.DeserializeTorrent(filePath)
 	if err != nil {
 		return err
 	}
@@ -101,7 +108,7 @@ func handleHandshake(args []string) error {
 	}
 	defer p.Conn.Close()
 
-	response, err := p.Handshake(*t, false)
+	response, err := p.Handshake(t.Info.InfoHash, false)
 	if err != nil {
 		return err
 	}
@@ -119,7 +126,7 @@ func handleDownloadPiece(args []string) error {
 		return err
 	}
 
-	t, err := DeserializeTorrent(torrentFilePath)
+	t, err := metainfo.DeserializeTorrent(torrentFilePath)
 	if err != nil {
 		return err
 	}
@@ -129,7 +136,7 @@ func handleDownloadPiece(args []string) error {
 		return err
 	}
 
-	p := Peer{
+	p := peer.Peer{
 		AddrPort: &peers[0],
 	}
 
@@ -138,7 +145,7 @@ func handleDownloadPiece(args []string) error {
 	}
 	defer p.Conn.Close()
 
-	_, err = p.Handshake(*t, false)
+	_, err = p.Handshake(t.Info.InfoHash, false)
 	if err != nil {
 		return err
 	}
@@ -152,18 +159,18 @@ func handleDownloadPiece(args []string) error {
 		return err
 	}
 	// unchoke
-	if msg.ID != MessageUnchoke {
+	if msg.ID != internal.MessageUnchoke {
 		return fmt.Errorf("incorrect message id: expected 1 got %d", msg.ID)
 	}
 
 	pieceLength := uint32(t.Info.PieceLength)
-	pieceHash := t.Info.pieceHashes()[pieceIndex]
+	pieceHash := t.Info.PieceHashes()[pieceIndex]
 
 	if pieceIndex == len(t.Info.Pieces)/20-1 {
 		pieceLength = uint32(t.Info.Length) - pieceLength*uint32(len(t.Info.Pieces)/20-1)
 	}
 
-	piece, err := p.getPiece(pieceHash, pieceLength, uint32(pieceIndex))
+	piece, err := p.GetPiece(pieceHash, pieceLength, uint32(pieceIndex))
 	if err != nil {
 		return err
 	}
@@ -181,10 +188,10 @@ func handleDownloadPiece(args []string) error {
 }
 
 func handleDownload(args []string) error {
-	downloadFilePath := os.Args[3]
-	torrentFilePath := os.Args[4]
+	downloadFilePath := args[3]
+	torrentFilePath := args[4]
 
-	t, err := DeserializeTorrent(torrentFilePath)
+	t, err := metainfo.DeserializeTorrent(torrentFilePath)
 	if err != nil {
 		return err
 	}
@@ -198,17 +205,17 @@ func handleDownload(args []string) error {
 	fmt.Printf("Found %d peers\n", len(peers))
 
 	// Create Peer objects from addresses
-	peerList := make([]Peer, len(peers))
+	peerList := make([]peer.Peer, len(peers))
 	for i, addr := range peers {
 		addrCopy := addr
-		peerList[i] = Peer{AddrPort: &addrCopy}
+		peerList[i] = peer.Peer{AddrPort: &addrCopy}
 	}
 
 	// Download using multiple concurrent workers with pipelining
 	maxWorkers := min(10, len(peerList))
 	fmt.Printf("Using %d concurrent workers\n\n", maxWorkers)
 
-	fileBytes, err := t.DownloadFile(peerList, maxWorkers)
+	fileBytes, err := downloader.DownloadFile(t, peerList, maxWorkers)
 	if err != nil {
 		return err
 	}
@@ -230,7 +237,7 @@ func handleDownload(args []string) error {
 }
 
 func handleMagnetParse(magnetLink string) error {
-	magnet, err := DeserializeMagnet(magnetLink)
+	magnet, err := metainfo.DeserializeMagnet(magnetLink)
 	if err != nil {
 		return err
 	}
@@ -241,14 +248,14 @@ func handleMagnetParse(magnetLink string) error {
 }
 
 func handleMagnetHandshake(magnetURL string) error {
-	magnet, err := DeserializeMagnet(magnetURL)
-	treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash), 999)
+	magnet, err := metainfo.DeserializeMagnet(magnetURL)
+	treq := tracker.NewTrackerRequest(magnet.TrackerURL, metainfo.URLEncodeInfoHash(magnet.HexInfoHash), 999)
 	tres, err := treq.SendRequest()
 	if err != nil {
 		return err
 	}
 
-	p := Peer{AddrPort: &tres.Peers[0]}
+	p := peer.Peer{AddrPort: &tres.Peers[0]}
 	err = p.Connect()
 	if err != nil {
 		return err
@@ -282,7 +289,7 @@ func handleMagnetInfo(magnetURL string) error {
 		return err
 	}
 
-	t := TorrentFile{
+	t := metainfo.TorrentFile{
 		Announce: magnet.TrackerURL,
 		Info:     info,
 	}
@@ -307,21 +314,21 @@ func handleMagnetDownloadPiece(args []string) error {
 		return err
 	}
 
-	t := TorrentFile{
+	t := metainfo.TorrentFile{
 		Announce: magnet.TrackerURL,
 		Info:     metadata,
 	}
 	t.Info.InfoHash = magnet.InfoHash
 
 	left := t.Info.Length
-	treq := newTrackerRequest(magnet.TrackerURL, urlEncodeInfoHash(magnet.HexInfoHash), left)
+	treq := tracker.NewTrackerRequest(magnet.TrackerURL, metainfo.URLEncodeInfoHash(magnet.HexInfoHash), left)
 	_, err = treq.SendRequest()
 	if err != nil {
 		return err
 	}
 
 	pieceLength := uint32(t.Info.PieceLength)
-	pieceHash := t.Info.pieceHashes()[pieceIndex]
+	pieceHash := t.Info.PieceHashes()[pieceIndex]
 	if pieceIndex == len(t.Info.Pieces)/20-1 {
 		pieceLength = uint32(t.Info.Length) - pieceLength*uint32(len(t.Info.Pieces)/20-1)
 	}
@@ -331,11 +338,11 @@ func handleMagnetDownloadPiece(args []string) error {
 		return err
 	}
 	// unchoke
-	if msg.ID != MessageUnchoke {
+	if msg.ID != internal.MessageUnchoke {
 		return fmt.Errorf("incorrect message id: expected 1 got %d", msg.ID)
 	}
 
-	piece, err := p.getPiece(pieceHash, pieceLength, uint32(pieceIndex))
+	piece, err := p.GetPiece(pieceHash, pieceLength, uint32(pieceIndex))
 	if err != nil {
 		return err
 	}
@@ -363,7 +370,7 @@ func handleMagnetDownload(args []string) error {
 		return err
 	}
 
-	t := TorrentFile{
+	t := metainfo.TorrentFile{
 		Announce: magnet.TrackerURL,
 		Info:     metadata,
 	}
@@ -373,12 +380,12 @@ func handleMagnetDownload(args []string) error {
 		return err
 	}
 
-	peerList := make([]Peer, len(peers))
+	peerList := make([]peer.Peer, len(peers))
 	for i, addr := range peers {
-		peerList[i] = Peer{AddrPort: &addr}
+		peerList[i] = peer.Peer{AddrPort: &addr}
 	}
 
-	fileBytes, err := t.DownloadFile(peerList, 5)
+	fileBytes, err := downloader.DownloadFile(&t, peerList, 5)
 	if err != nil {
 		return err
 	}
@@ -393,4 +400,36 @@ func handleMagnetDownload(args []string) error {
 		return err
 	}
 	return nil
+}
+
+func ConnectToMagnetPeer(magnetURL string) (*peer.Peer, *metainfo.MagnetLink, error) {
+	magnet, err := metainfo.DeserializeMagnet(magnetURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	treq := tracker.NewTrackerRequest(magnet.TrackerURL,
+		metainfo.URLEncodeInfoHash(magnet.HexInfoHash), 999)
+
+	tres, err := treq.SendRequest()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	p := &peer.Peer{AddrPort: &tres.Peers[0]}
+	if err = p.Connect(); err != nil {
+		return nil, nil, err
+	}
+
+	if _, err = p.MagnetHandshake(magnet.InfoHash); err != nil {
+		p.Conn.Close()
+		return nil, nil, err
+	}
+
+	if _, err = p.ReadBitfield(); err != nil {
+		p.Conn.Close()
+		return nil, nil, err
+	}
+
+	return p, magnet, nil
 }

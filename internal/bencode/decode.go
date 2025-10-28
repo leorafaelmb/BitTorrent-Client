@@ -1,4 +1,4 @@
-package main
+package bencode
 
 import (
 	"fmt"
@@ -9,13 +9,13 @@ import (
 
 // Decode decodes bencoded data into Go types
 func Decode(bencoded []byte) (interface{}, error) {
-	result, _, err := decodeBencode(bencoded, 0)
+	result, _, err := DecodeBencode(bencoded, 0)
 	return result, err
 }
 
-// decode is the internal recursive decoder that processes bencoded data
+// DecodeBencode is the internal recursive decoder that processes bencoded data
 // Returns string, int, []interace{}, map[string]interface{}, or []byte depending on input
-func decodeBencode(bencoded []byte, index int) (interface{}, int, error) {
+func DecodeBencode(bencoded []byte, index int) (interface{}, int, error) {
 	identifier := rune(bencoded[index])
 	if unicode.IsDigit(identifier) {
 		decodedString, i, err := decodeString(bencoded, index)
@@ -94,7 +94,7 @@ func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 			break
 		}
 
-		val, i, err = decodeBencode(bencoded, i)
+		val, i, err = DecodeBencode(bencoded, i)
 		if err != nil {
 			return nil, -1, fmt.Errorf("error decoding bencoded value: %v", err)
 		}
@@ -130,7 +130,7 @@ func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error)
 			return nil, i, fmt.Errorf("error decoding dict key value: %w", err)
 		}
 
-		val, i, err = decodeBencode(bencoded, i)
+		val, i, err = DecodeBencode(bencoded, i)
 		if err != nil {
 			return nil, i, err
 		}
