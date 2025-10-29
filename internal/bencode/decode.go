@@ -54,7 +54,11 @@ func decodeString(bencoded []byte, index int) ([]byte, int, error) {
 
 	length, err := strconv.Atoi(string(lengthStr))
 	if err != nil {
-		return make([]byte, 0), -1, fmt.Errorf("error converting lengthStr (%s) to an int: %v", lengthStr, err)
+		return nil, index, &DecodeError{
+			Position: index,
+			Reason:   err.Error(),
+			Context:  string(bencoded[index:min(index+20, len(bencoded))]),
+		}
 	}
 	endIndex := firstColonIndex + 1 + length
 
@@ -72,7 +76,11 @@ func decodeInt(bencoded []byte, index int) (int, int, error) {
 
 	decodedInt, err := strconv.Atoi(string(bencoded[index+1 : i]))
 	if err != nil {
-		return 0, -1, fmt.Errorf("error converting %s to an int: %v", bencoded[index+1:i], err)
+		return 0, index, &DecodeError{
+			Position: index,
+			Reason:   err.Error(),
+			Context:  string(bencoded[index:min(index+20, len(bencoded))]),
+		}
 	}
 
 	i++
@@ -96,7 +104,11 @@ func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 
 		val, i, err = DecodeBencode(bencoded, i)
 		if err != nil {
-			return nil, -1, fmt.Errorf("error decoding bencoded value: %v", err)
+			return nil, index, &DecodeError{
+				Position: index,
+				Reason:   err.Error(),
+				Context:  string(bencoded[index:min(20+index, len(bencoded))]),
+			}
 		}
 		decodedList = append(decodedList, val)
 
@@ -127,12 +139,20 @@ func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error)
 
 		key, i, err = decodeString(bencoded, i)
 		if err != nil {
-			return nil, i, fmt.Errorf("error decoding dict key value: %w", err)
+			return nil, i, &DecodeError{
+				Position: i,
+				Reason:   err.Error(),
+				Context:  string(bencoded[i:min(20+i, len(bencoded))]),
+			}
 		}
 
 		val, i, err = DecodeBencode(bencoded, i)
 		if err != nil {
-			return nil, i, err
+			return nil, i, &DecodeError{
+				Position: i,
+				Reason:   err.Error(),
+				Context:  string(bencoded[i:min(20+i, len(bencoded))]),
+			}
 		}
 
 		decodedDict[string(key)] = val
