@@ -9,13 +9,13 @@ import (
 
 // Decode decodes bencoded data into Go types
 func Decode(bencoded []byte) (interface{}, error) {
-	result, _, err := DecodeBencode(bencoded, 0)
+	result, _, err := DecodeAt(bencoded, 0)
 	return result, err
 }
 
-// DecodeBencode is the internal recursive decoder that processes bencoded data
+// DecodeAt is the internal recursive decoder that processes bencoded data
 // Returns string, int, []interace{}, map[string]interface{}, or []byte depending on input
-func DecodeBencode(bencoded []byte, index int) (interface{}, int, error) {
+func DecodeAt(bencoded []byte, index int) (interface{}, int, error) {
 	identifier := rune(bencoded[index])
 	if unicode.IsDigit(identifier) {
 		decodedString, i, err := decodeString(bencoded, index)
@@ -35,7 +35,11 @@ func DecodeBencode(bencoded []byte, index int) (interface{}, int, error) {
 		return decodeDict(bencoded, index)
 
 	} else {
-		return "", -1, fmt.Errorf("invalid identifier: %s", string(identifier))
+		return "", -1, &DecodeError{
+			Position: index,
+			Reason:   fmt.Sprintf("invalid identifier: %s", string(identifier)),
+			Context:  string(bencoded[index:min(index+20, len(bencoded))]),
+		}
 	}
 }
 
@@ -74,6 +78,24 @@ func decodeInt(bencoded []byte, index int) (int, int, error) {
 	for ; bencoded[i] != 'e'; i++ {
 	}
 
+	numStr := string(bencoded[index+1 : i])
+
+	// Check for invalid formats
+	if len(numStr) > 1 && numStr[0] == '0' {
+		return 0, index, &DecodeError{
+			Position: index,
+			Reason:   fmt.Sprintf("integer has leading zero: %s", numStr),
+			Context:  string(bencoded[index:min(index+20, len(bencoded))]),
+		}
+	}
+	if numStr == "-0" {
+		return 0, index, &DecodeError{
+			Position: index,
+			Reason:   "negative zero is invalid",
+			Context:  string(bencoded[index:min(index+20, len(bencoded))]),
+		}
+	}
+
 	decodedInt, err := strconv.Atoi(string(bencoded[index+1 : i]))
 	if err != nil {
 		return 0, index, &DecodeError{
@@ -102,7 +124,7 @@ func decodeList(bencoded []byte, index int) ([]interface{}, int, error) {
 			break
 		}
 
-		val, i, err = DecodeBencode(bencoded, i)
+		val, i, err = DecodeAt(bencoded, i)
 		if err != nil {
 			return nil, index, &DecodeError{
 				Position: index,
@@ -146,7 +168,7 @@ func decodeDict(bencoded []byte, index int) (map[string]interface{}, int, error)
 			}
 		}
 
-		val, i, err = DecodeBencode(bencoded, i)
+		val, i, err = DecodeAt(bencoded, i)
 		if err != nil {
 			return nil, i, &DecodeError{
 				Position: i,
