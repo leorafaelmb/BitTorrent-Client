@@ -222,8 +222,7 @@ func handleDownload(args []string) error {
 
 	fmt.Println("\nDownload complete! Saving file(s)...")
 
-	// Use the new SaveFile method which handles both single and multi-file
-	if err := t.SaveFile(downloadFilePath, fileBytes); err != nil {
+	if err := downloader.SaveFile(*t, downloadFilePath, fileBytes); err != nil {
 		return fmt.Errorf("error saving file(s): %w", err)
 	}
 
@@ -390,15 +389,16 @@ func handleMagnetDownload(args []string) error {
 		return err
 	}
 
-	f, err := os.Create(downloadFilePath)
-	if err != nil {
-		return err
+	if err := downloader.SaveFile(t, downloadFilePath, fileBytes); err != nil {
+		return fmt.Errorf("error saving file(s): %w", err)
 	}
-	defer f.Close()
 
-	if _, err = f.Write(fileBytes); err != nil {
-		return err
+	if t.Info.IsSingleFile() {
+		fmt.Printf("File saved to: %s\n", downloadFilePath)
+	} else {
+		fmt.Printf("Files saved to directory: %s\n", filepath.Join(filepath.Dir(downloadFilePath), t.Info.Name))
 	}
+
 	return nil
 }
 

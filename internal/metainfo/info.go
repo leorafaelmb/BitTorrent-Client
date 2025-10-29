@@ -3,8 +3,6 @@ package metainfo
 import (
 	"crypto/sha1"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -182,47 +180,6 @@ func (i Info) serializeInfo() []byte {
 
 	infoB = append(infoB, 'e')
 	return infoB
-}
-
-// SaveFile saves downloaded data to appropriate file(s)
-func (t *TorrentFile) SaveFile(downloadPath string, data []byte) error {
-	files := t.Info.GetFiles()
-
-	if t.Info.IsSingleFile() {
-		// Single file: just write it
-		return os.WriteFile(downloadPath, data, 0644)
-	}
-	// Multi-file: create directory structure and split data
-	baseDir := filepath.Join(filepath.Dir(downloadPath), t.Info.Name)
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
-		return fmt.Errorf("error creating base directory: %w", err)
-	}
-
-	offset := 0
-	for _, fileInfo := range files {
-		// Construct file path
-		pathComponents := append([]string{baseDir}, fileInfo.Path...)
-		filePath := filepath.Join(pathComponents...)
-
-		// Create parent directories
-		parentDir := filepath.Dir(filePath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return fmt.Errorf("error creating directory %s: %w", parentDir, err)
-		}
-
-		// Extract file data
-		fileData := data[offset : offset+fileInfo.Length]
-
-		// Write file
-		if err := os.WriteFile(filePath, fileData, 0644); err != nil {
-			return fmt.Errorf("error writing file %s: %w", filePath, err)
-		}
-
-		fmt.Printf("Wrote file: %s (%d bytes)\n", filePath, fileInfo.Length)
-		offset += fileInfo.Length
-	}
-
-	return nil
 }
 
 // HexPieceHashes formats piece hashes for display in hexadecimal format

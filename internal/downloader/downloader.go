@@ -5,6 +5,8 @@ import (
 	"github.com/codecrafters-io/bittorrent-starter-go/internal"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -130,6 +132,47 @@ func worker(t *metainfo.TorrentFile, p *peer.Peer, workQueue chan *PieceWork, re
 		}
 
 		fmt.Printf("Downloaded piece %d/%d\n", work.Index+1, len(t.Info.Pieces)/20)
+	}
+
+	return nil
+}
+
+// SaveFile saves downloaded data to appropriate file(s)
+func SaveFile(t metainfo.TorrentFile, downloadPath string, data []byte) error {
+	files := t.Info.GetFiles()
+
+	if t.Info.IsSingleFile() {
+		// Single file: just write it
+		return os.WriteFile(downloadPath, data, 0644)
+	}
+	// Multi-file: create directory structure and split data
+	baseDir := filepath.Join(filepath.Dir(downloadPath), t.Info.Name)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return fmt.Errorf("error creating base directory: %w", err)
+	}
+
+	offset := 0
+	for _, fileInfo := range files {
+		// Construct file path
+		pathComponents := append([]string{baseDir}, fileInfo.Path...)
+		filePath := filepath.Join(pathComponents...)
+
+		// Create parent directories
+		parentDir := filepath.Dir(filePath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("error creating directory %s: %w", parentDir, err)
+		}
+
+		// Extract file data
+		fileData := data[offset : offset+fileInfo.Length]
+
+		// Write file
+		if err := os.WriteFile(filePath, fileData, 0644); err != nil {
+			return fmt.Errorf("error writing file %s: %w", filePath, err)
+		}
+
+		fmt.Printf("Wrote file: %s (%d bytes)\n", filePath, fileInfo.Length)
+		offset += fileInfo.Length
 	}
 
 	return nil
