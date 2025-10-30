@@ -1,14 +1,46 @@
 package downloader
 
 import (
+	"context"
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
+
+type Downloader struct {
+	torrent *metainfo.TorrentFile
+	peers   []peer.Peer
+	config  Config
+
+	workQueue chan *PieceWork
+	results   chan *PieceResult
+	errors    chan *WorkerError
+
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+}
+
+func New(t *metainfo.TorrentFile, peers []peer.Peer, opts ...Option) *Downloader {
+	cfg := DefaultConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+
+	return &Downloader{
+		torrent:    t,
+		peers:      peers,
+		config:     cfg,
+		ctx:        ctx,
+		cancelFunc: cancel,
+	}
+
+}
 
 type PieceWork struct {
 	Index  int
@@ -21,56 +53,55 @@ type PieceResult struct {
 	Payload []byte
 }
 
-// DownloadFile orchestrates concurrent download from multiple peers using a worker pool.
-func DownloadFile(t *metainfo.TorrentFile, peers []peer.Peer, maxWorkers int) ([]byte, error) {
-	var (
-		pieceHashes = t.Info.PieceHashes()
-		numPieces   = len(pieceHashes)
-		pieceLength = uint32(t.Info.PieceLength)
-	)
-	workQueue := make(chan *PieceWork, numPieces)
-	results := make(chan *PieceResult)
+// Download orchestrates concurrent download from multiple peers using a worker pool
+func (d *Downloader) Download() ([]byte, error) {
+	defer d.cancelFunc()
 
-	for i := 0; i < numPieces; i++ {
-		length := pieceLength
-		// Last piece might be shorter
-		if i == numPieces-1 {
-			length = uint32(t.Info.Length) - pieceLength*uint32(numPieces-1)
-		}
-		workQueue <- &PieceWork{
-			Index:  i,
-			Hash:   pieceHashes[i],
-			Length: length,
-		}
+	var (
+		pieceHashes = d.torrent.Info.PieceHashes()
+		numPieces   = len(pieceHashes)
+	)
+
+	d.workQueue = make(chan *PieceWork, numPieces)
+	d.results = make(chan *PieceResult, numPieces)
+	d.errors = make(chan *WorkerError, len(d.peers))
+
+	if err := d.fillWorkQueue(); err != nil {
+		return nil, err
 	}
-	close(workQueue)
 
 	var wg sync.WaitGroup
-	numWorkers := min(maxWorkers, len(peers))
+	numWorkers := min(d.config.MaxWorkers, len(d.peers))
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func(peer peer.Peer) {
+		go func(p peer.Peer) {
 			defer wg.Done()
-			if err := worker(t, &peer, workQueue, results); err != nil {
-				fmt.Printf("Worker error: %v\n", err)
+			worker := NewWorker(&p, d.torrent, d.config)
+			if err := worker.Run(d.ctx, d.workQueue, d.results, d.errors); err != nil {
+				d.errors <- &WorkerError{
+					PeerAddr: p.AddrPort.String(),
+					Phase:    "worker",
+					Err:      err,
+				}
 			}
-		}(peers[i])
+		}(d.peers[i])
 	}
 
-	// Close results channel when workers are done
+	// Close results when workers are done
 	go func() {
 		wg.Wait()
-		close(results)
+		close(d.results)
+		close(d.errors)
 	}()
 
-	pieces := make([][]byte, numPieces)
-	for result := range results {
-		pieces[result.Index] = result.Payload
+	pieces, err := d.collectResults()
+	if err != nil {
+		return nil, err
 	}
 
 	// Assemble file byte slice
-	fileBytes := make([]byte, 0, t.Info.Length)
+	fileBytes := make([]byte, 0, d.torrent.Info.Length)
 	for _, piece := range pieces {
 		fileBytes = append(fileBytes, piece...)
 	}
@@ -78,75 +109,90 @@ func DownloadFile(t *metainfo.TorrentFile, peers []peer.Peer, maxWorkers int) ([
 	return fileBytes, nil
 }
 
-func worker(t *metainfo.TorrentFile, p *peer.Peer, workQueue chan *PieceWork, results chan *PieceResult) error {
-	// Connect to p
-	if err := p.Connect(); err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer p.Conn.Close()
+func (d *Downloader) fillWorkQueue() error {
+	pieceHashes := d.torrent.Info.PieceHashes()
+	numPieces := len(pieceHashes)
+	pieceLength := uint32(d.torrent.Info.PieceLength)
 
-	// Handshake
-	if _, err := p.Handshake(t.Info.InfoHash, false); err != nil {
-		return fmt.Errorf("handshake failed: %w", err)
-	}
+	for i := 0; i < numPieces; i++ {
+		length := pieceLength
 
-	// Read bitfield
-	msg, err := p.ReadBitfield()
-	if err != nil {
-		return err
-	}
-
-	// Send interested
-	msg, err = p.SendInterested()
-	if err != nil {
-		return fmt.Errorf("failed to send interested: %w", err)
-	}
-
-	// Receive unchoke
-	if msg.ID != internal.MessageUnchoke {
-		return fmt.Errorf("expected unchoke (1), got %d", msg.ID)
-	}
-
-	for work := range workQueue {
-		// Check if p has the piece
-		if !p.Bitfield.HasPiece(work.Index) {
-			// Put work back in queue for another p
-			go func(w *PieceWork) {
-				workQueue <- w
-			}(work)
-			continue
+		if i == numPieces-1 {
+			length = uint32(d.torrent.Info.Length) - pieceLength*uint32(numPieces-1)
 		}
 
-		piece, err := p.GetPiece(work.Hash, work.Length, uint32(work.Index))
-		if err != nil {
-			fmt.Printf("Peer %s failed to download piece %d: %v\n",
-				p.AddrPort.String(), work.Index, err)
-			// Put work back in queue to retry
-			workQueue <- work
-			continue
+		d.workQueue <- &PieceWork{
+			Index:  i,
+			Hash:   pieceHashes[i],
+			Length: length,
 		}
+	}
+	close(d.workQueue)
+	return nil
+}
 
-		results <- &PieceResult{
-			Index:   work.Index,
-			Payload: piece,
+// collectResults gathers downloaded pieces
+func (d *Downloader) collectResults() ([][]byte, error) {
+	numPieces := len(d.torrent.Info.PieceHashes())
+	pieces := make([][]byte, numPieces)
+
+	// Progress ticker
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return nil, fmt.Errorf("download timeout")
+
+		case result, ok := <-d.results:
+			if !ok {
+				// Results channel closed, all workers done
+				return pieces, nil
+			}
+
+			pieces[result.Index] = result.Payload
+
+		case err := <-d.errors:
+			if d.config.Verbose {
+				fmt.Printf("Worker error: %v\n", err)
+			}
+
 		}
+	}
+}
 
-		fmt.Printf("Downloaded piece %d/%d\n", work.Index+1, len(t.Info.Pieces)/20)
+// validatePieces checks that all pieces were downloaded
+func (d *Downloader) validatePieces(pieces [][]byte) error {
+	var missing []int
+
+	for i, piece := range pieces {
+		if piece == nil {
+			missing = append(missing, i)
+		}
+	}
+
+	if len(missing) > 0 {
+		return &DownloadError{
+			TorrentName:  d.torrent.Info.Name,
+			FailedPieces: missing,
+			TotalPieces:  len(pieces),
+		}
 	}
 
 	return nil
 }
 
 // SaveFile saves downloaded data to appropriate file(s)
-func SaveFile(t metainfo.TorrentFile, downloadPath string, data []byte) error {
-	files := t.Info.GetFiles()
+func (d *Downloader) SaveFile(downloadPath string, data []byte) error {
+	files := d.torrent.Info.GetFiles()
 
-	if t.Info.IsSingleFile() {
+	if d.torrent.Info.IsSingleFile() {
 		// Single file: just write it
 		return os.WriteFile(downloadPath, data, 0644)
 	}
 	// Multi-file: create directory structure and split data
-	baseDir := filepath.Join(filepath.Dir(downloadPath), t.Info.Name)
+	baseDir := filepath.Join(filepath.Dir(downloadPath), d.torrent.Info.Name)
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return fmt.Errorf("error creating base directory: %w", err)
 	}
@@ -175,5 +221,18 @@ func SaveFile(t metainfo.TorrentFile, downloadPath string, data []byte) error {
 		offset += fileInfo.Length
 	}
 
+	return nil
+}
+
+func DownloadFile(t *metainfo.TorrentFile, peers []peer.Peer, maxWorkers int, downloadPath string) error {
+	d := New(t, peers, WithMaxWorkers(maxWorkers))
+	fileBytes, err := d.Download()
+	if err != nil {
+		return err
+	}
+
+	if err = d.SaveFile(downloadPath, fileBytes); err != nil {
+		return err
+	}
 	return nil
 }

@@ -211,19 +211,8 @@ func handleDownload(args []string) error {
 		peerList[i] = peer.Peer{AddrPort: &addrCopy}
 	}
 
-	// Download using multiple concurrent workers with pipelining
-	maxWorkers := min(10, len(peerList))
-	fmt.Printf("Using %d concurrent workers\n\n", maxWorkers)
-
-	fileBytes, err := downloader.DownloadFile(t, peerList, maxWorkers)
-	if err != nil {
+	if err = downloader.DownloadFile(t, peerList, 50, downloadFilePath); err != nil {
 		return err
-	}
-
-	fmt.Println("\nDownload complete! Saving file(s)...")
-
-	if err := downloader.SaveFile(*t, downloadFilePath, fileBytes); err != nil {
-		return fmt.Errorf("error saving file(s): %w", err)
 	}
 
 	if t.Info.IsSingleFile() {
@@ -384,13 +373,8 @@ func handleMagnetDownload(args []string) error {
 		peerList[i] = peer.Peer{AddrPort: &addr}
 	}
 
-	fileBytes, err := downloader.DownloadFile(&t, peerList, 5)
-	if err != nil {
+	if err = downloader.DownloadFile(&t, peerList, 50, downloadFilePath); err != nil {
 		return err
-	}
-
-	if err := downloader.SaveFile(t, downloadFilePath, fileBytes); err != nil {
-		return fmt.Errorf("error saving file(s): %w", err)
 	}
 
 	if t.Info.IsSingleFile() {
