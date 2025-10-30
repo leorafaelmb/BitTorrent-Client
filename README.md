@@ -1,6 +1,6 @@
 # BitTorrent Client
 
-A BitTorrent client implementation in Go supporting both .torrent files and magnet links, built according to the BitTorrent Protocol Specification.
+A BitTorrent client implementation in Go supporting both .torrent files and magnet links, built according to the [BitTorrent Protocol Specification](https://www.bittorrent.org/beps/bep_0003.html).
 
 ## Features
 - Download torrents from .torrent files
