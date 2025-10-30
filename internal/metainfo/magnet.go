@@ -50,7 +50,7 @@ func ParseMetadataPiece(payload []byte) (*MetadataPiece, error) {
 
 	// First byte is extension message ID, skip
 	bencodedPart := payload[1:]
-	decoded, dictEnd, err := bencode.DecodeBencode(bencodedPart, 0)
+	decoded, dictEnd, err := bencode.DecodeAt(bencodedPart, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode metadata response: %w", err)
 	}
