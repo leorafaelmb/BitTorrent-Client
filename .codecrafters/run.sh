@@ -8,4 +8,4 @@
 
 set -e # Exit on failure
 
-exec /tmp/codecrafters-build-bittorrent-go "$@"
+exec /tmp/bittorrent-client-go/bittorrent "$@"
