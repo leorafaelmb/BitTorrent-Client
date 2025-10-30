@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
 	"io"
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/codecrafters-io/bittorrent-starter-go/internal"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
 )
 
 // Peer represents a network connection to another BitTorrent client.

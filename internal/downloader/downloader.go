@@ -3,12 +3,13 @@ package downloader
 import (
 	"context"
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/metainfo"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
 )
 
 type Downloader struct {

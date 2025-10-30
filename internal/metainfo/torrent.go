@@ -2,12 +2,13 @@ package metainfo
 
 import (
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/tracker"
 	"io"
 	"net/netip"
 	"os"
 	"strings"
+
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/tracker"
 )
 
 // parseTorrent reads a .torrent file and returns its raw bytes

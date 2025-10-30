@@ -3,9 +3,10 @@ package metainfo
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
 	"net/url"
 	"strings"
+
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/bencode"
 )
 
 type MagnetLink struct {
